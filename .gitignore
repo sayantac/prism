@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+env/
+*.pyc
+venv/
+ENV/
+.venv/
+venv.bak/
+pip-wheel-metadata/
+pip-log.txt
+build/
+dist/
+*.egg-info/
+.eggs/
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+.cache/
+.instance
+.python-version
+celerybeat-schedule
+
+# FastAPI / general backend
+# (database, local envs, uploads)
+*.sqlite3
+*.db
+*.db-journal
+uploads/
+media/
+logs/
+*.log
+.env
+.env.*
+secrets.yaml
+
+# Node / React (Create React App, Vite, Next, etc.)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnp.*
+.cache/
+.next/
+.out/
+dist/
+build/
+public/build/
+.vite/
+parcel-cache/
+coverage/
+.eslintcache
+
+# Local env files for frontend
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Containers / misc
+docker-compose.override.yml
+.docker/
+
