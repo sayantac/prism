@@ -1,92 +1,374 @@
-# RecommendationSystem
+# E-Commerce Recommendation System
 
+A comprehensive AI-powered recommendation engine with advanced ML capabilities, user segmentation, and real-time analytics.
 
+## 🏗️ Architecture
 
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+This is a **monorepo** containing multiple services:
 
 ```
-cd existing_repo
-git remote add origin https://git.nagarro.com/gitg04208/recommendationsystem.git
-git branch -M main
-git push -uf origin main
+recommendationsystem/
+├── services/
+│   ├── backend/          # FastAPI backend with ML engine
+│   │   └── README.md     # Backend documentation
+│   └── frontend/         # React TypeScript frontend
+│       └── README.md     # Frontend documentation
+├── docs/                 # Comprehensive documentation
+├── scripts/              # Utility scripts
+├── docker-compose.yml    # Docker orchestration
+├── Makefile             # Development commands
+└── .env                 # Environment configuration
 ```
 
-## Integrate with your tools
+### Services
 
-- [ ] [Set up project integrations](https://git.nagarro.com/gitg04208/recommendationsystem/-/settings/integrations)
+- **[Backend](./services/backend/README.md)** - FastAPI + PostgreSQL + ML engine
+- **[Frontend](./services/frontend/README.md)** - React 19 + TypeScript + Redux Toolkit
 
-## Collaborate with your team
+## Quick Start
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+### Prerequisites
 
-## Test and Deploy
+- Docker and Docker Compose
+- 8GB RAM minimum
+- 10GB free disk space
 
-Use the built-in continuous integration in GitLab.
+### 1. Setup and Run
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+```bash
+# Clone the repository
+git clone <repository-url>
+cd recommendationsystem
 
-***
+# Create environment file and start services
+make setup
+```
 
-# Editing this README
+This will:
+- Create `.env` from `.env.example`
+- Build Docker images
+- Start all services (postgres, backend, frontend)
+- Database initializes automatically ✨
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
+### 2. Access the Application
 
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+- **Frontend**: http://localhost:5173
+- **Backend API**: http://localhost:8000
+- **API Documentation**: http://localhost:8000/docs
+- **PgAdmin** (optional): `make pgadmin` then http://localhost:5050
 
-## Name
-Choose a self-explaining name for your project.
+### 3. Login
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Default admin credentials (change in .env):
+- **Email**: admin@example.com
+- **Password**: admin123
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+That's it! The system is now running. 🎉
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+> **Database Note**: Tables, roles, permissions, and admin user are created automatically on first startup. Data persists in Docker volume between restarts.
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## 📋 Common Commands
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```bash
+```bash
+# Setup (create .env and start services)
+make setup
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+# Start all services
+make up
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+# Stop all services
+make down
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+# View logs
+make logs
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+# View backend logs
+make logs-backend
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+# Rebuild services
+make build
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+# Shell into backend
+make shell-backend
 
-## License
-For open source projects, say how it is licensed.
+# Shell into database
+make shell-db
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+# Run backend tests
+make test
+
+# Clean everything (removes volumes)
+make clean
+```
+
+> **Note**: Database initializes automatically on first run! No need to run `make init-db`.
+```
+
+## 🚀 Features
+
+### Core Features
+
+- **Personalized Recommendations**: User-based collaborative filtering with ALS
+
+- **Product Similarity**: Content-based recommendations using TF-IDF## Collaborate with your team
+
+- **Trending Products**: Real-time popular products based on user behavior
+
+- **User Segmentation**: RFM analysis and K-means clustering
+- **Reorder Predictions**: LightGBM model for purchase prediction
+- **Real-time Analytics**: User behavior tracking and conversion metrics
+- **Vector Search**: Product similarity using pgvector
+- **Hybrid Recommendations**: Content + Collaborative filtering
+
+### Admin Features
+
+- **ML Model Management**: Train, monitor, and configure ML models
+- **User Segmentation Dashboard**: Create and manage custom segments
+- **Performance Monitoring**: Real-time system health and metrics
+- **Product Management**: CRUD operations with bulk upload
+- **Order Management**: View and manage customer orders
+- **Analytics Dashboard**: Comprehensive business insights
+
+## 🛠️ Tech Stack
+
+### Backend
+
+- **Framework**: FastAPI 0.115.12
+- **Database**: PostgreSQL 15 with pgvector extension
+- **ORM**: SQLAlchemy 2.0
+- **ML Libraries**: scikit-learn, LightGBM, implicit ALS
+- **Authentication**: JWT with bcrypt
+
+### Frontend
+
+- **Framework**: React 19 with TypeScript
+- **State Management**: Redux Toolkit with RTK Query
+- **Styling**: TailwindCSS 4 + DaisyUI
+- **Build Tool**: Vite 6
+
+### Infrastructure
+
+- **Containerization**: Docker with Docker Compose
+- **Database**: PostgreSQL 15 Alpine with pgvector
+- **Development**: Hot reload for backend and frontend
+- **Web Server**: Uvicorn (ASGI)
+- **Routing**: React Router 7
+
+## 📚 Documentation
+
+### Service Documentation
+- **[Backend Service Guide](./services/backend/README.md)** - API, ML models, database
+- **[Frontend Service Guide](./services/frontend/README.md)** - React app, components, state
+
+### General Documentation
+- [Quick Start Guide](./docs/QUICK_START.md) - Get started in 5 minutes
+- [Docker Configuration](./docs/docker.md) - Docker setup and usage
+- [Architecture Overview](./docs/architecture.md) - System design and patterns
+- [API Documentation](./docs/api.md) - API endpoints and usage
+- [ML Models Guide](./docs/ml-models.md) - Machine learning models
+- [Development Workflow](./docs/development.md) - Development best practices
+- [Deployment Guide](./docs/deployment.md) - Production deployment
+- [Monorepo Structure](./docs/MONOREPO_STRUCTURE.md) - Repository organization
+- [Security Guide](./docs/SECURITY.md) - Security best practices
+- [Frontend API Patterns](./docs/FRONTEND_API_PATTERNS.md) - RTK Query patterns
+- [Frontend Testing](./docs/FRONTEND_TESTING.md) - Testing guide
+
+## 🧪 Testing
+
+```bash
+# Backend tests
+make test
+# or: docker-compose exec backend pytest --cov=app
+
+# Frontend tests
+docker-compose exec frontend npm test
+# or: docker-compose exec frontend npm run test:coverage
+```
+
+For detailed testing guides:
+- [Backend Testing](./services/backend/README.md#-testing)
+- [Frontend Testing](./services/frontend/README.md#-testing)
+- [Frontend Testing Guide](./docs/FRONTEND_TESTING.md)
+
+## 🔧 Development
+
+### Code Style
+
+```bash
+# Backend linting
+docker-compose exec backend flake8 app/
+docker-compose exec backend black --check app/
+
+# Frontend linting
+docker-compose exec frontend npm run lint
+```
+
+### Database Migrations
+
+```bash
+# Create new migration
+make migrate-create
+
+# Apply migrations
+make migrate
+
+# Or manually
+docker-compose exec backend alembic upgrade head
+```
+
+### Debugging
+
+```bash
+# View logs
+make logs                 # All services
+make logs-backend         # Backend only
+make logs-frontend        # Frontend only
+make logs-db             # Database only
+
+# Shell access
+make shell-backend       # Backend container
+make shell-frontend      # Frontend container
+make shell-db           # PostgreSQL CLI
+```
+
+## 🗺️ Project Status
+
+This is a **POC (Proof of Concept)** project with simplified Docker configuration for local development.
+
+### Next Steps for Production
+
+1. Add production-ready multi-stage Dockerfiles
+2. Implement proper secrets management (Vault, AWS Secrets Manager)
+3. Add CI/CD pipeline (GitHub Actions)
+4. Set up monitoring (Prometheus, Grafana)
+5. Implement logging aggregation (ELK stack)
+6. Add Redis caching layer
+7. WebSocket support for real-time features
+8. ML model versioning with MLflow
+
+## 📄 License
+
+This project is licensed under the MIT License.
+
+## 👥 Team
+
+Development Team: Nagarro
+
+---
+
+**Built with ❤️ by Nagarro**
+```
+
+### Integration Tests
+```bash
+docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+```
+
+## 🔧 Configuration
+
+All environment variables are configured in the root `.env` file.
+
+### Quick Configuration
+
+```bash
+# Copy example file
+cp .env.example .env
+
+# Edit with your values
+vi .env
+```
+
+### Key Variables
+
+```env
+# Database
+POSTGRES_USER=ecommerce_user
+POSTGRES_PASSWORD=change-this-secure-password
+POSTGRES_DB=ecommerce
+
+# Backend
+SECRET_KEY=your-super-secret-key-change-in-production
+BACKEND_PORT=8000
+CORS_ORIGINS=["http://localhost:5173"]
+
+# Frontend
+FRONTEND_PORT=5173
+VITE_API_BASE_URL=http://localhost:8000  # No /api/v1 suffix
+
+# Admin User (first-time setup)
+FIRST_SUPERUSER_EMAIL=admin@example.com
+FIRST_SUPERUSER_PASSWORD=admin123
+```
+
+For detailed configuration options, see:
+- [Backend Configuration](./services/backend/README.md#-configuration)
+- [Frontend Configuration](./services/frontend/README.md#-configuration)
+- [.env.example](./.env.example) - Complete list
+
+## 📦 Project Structure
+
+For detailed service structure, see:
+- [Backend Structure](./services/backend/README.md#-architecture)
+- [Frontend Structure](./services/frontend/README.md#-architecture)
+
+```
+recommendationsystem/
+├── services/
+│   ├── backend/              # FastAPI backend service
+│   │   ├── app/             # Application code
+│   │   ├── data/            # Sample data
+│   │   ├── ml_models/       # Trained ML models
+│   │   ├── requirements.txt
+│   │   ├── Dockerfile
+│   │   └── README.md        # Backend documentation
+│   └── frontend/             # React frontend service
+│       ├── src/             # Source code
+│       ├── public/          # Static assets
+│       ├── package.json
+│       ├── Dockerfile
+│       └── README.md        # Frontend documentation
+├── docs/                     # Comprehensive documentation
+├── scripts/                  # Utility scripts
+├── docker-compose.yml       # Docker orchestration
+├── Makefile                 # Development commands
+├── .env                     # Environment variables
+├── .env.example             # Environment template
+├── .gitignore               # Git ignore patterns
+└── .dockerignore            # Docker ignore patterns
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 👥 Team
+
+- Development Team: Nagarro
+
+## 🆘 Support
+
+For issues and questions:
+- Create an issue in the repository
+- Contact: support@example.com
+
+## 🗺️ Roadmap
+
+- [ ] Implement Redis caching layer
+- [ ] Add real-time notifications with WebSockets
+- [ ] ML model versioning with MLflow
+- [ ] A/B testing framework
+- [ ] Mobile app (React Native)
+- [ ] Microservices architecture migration
+
+---
+
+**Built with ❤️ by Nagarro**

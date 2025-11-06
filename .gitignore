@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *.pyo
 *.pyd
+*.so
 .Python
 env/
 *.pyc
@@ -14,9 +15,21 @@ venv.bak/
 pip-wheel-metadata/
 pip-log.txt
 build/
+develop-eggs/
 dist/
-*.egg-info/
+downloads/
+eggs/
 .eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 htmlcov/
 .tox/
 .nox/
@@ -24,30 +37,40 @@ htmlcov/
 .mypy_cache/
 .coverage
 coverage.xml
+*.cover
 .cache/
 .instance
 .python-version
 celerybeat-schedule
+.hypothesis/
 
 # FastAPI / general backend
-# (database, local envs, uploads)
 *.sqlite3
 *.db
 *.db-journal
+*.sqlite
 uploads/
 media/
 logs/
 *.log
 .env
-.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+*.env
 secrets.yaml
 
-# Node / React (Create React App, Vite, Next, etc.)
+# Node / React
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
+.next/
+out/
 .pnp.*
 .cache/
 .next/
@@ -59,6 +82,47 @@ public/build/
 parcel-cache/
 coverage/
 .eslintcache
+.nyc_output/
+
+# ML Models and artifacts (trained model files only, not code)
+ml_models/*.pkl
+ml_models/*.joblib
+ml_models/*.h5
+ml_models/*.pb
+ml_models/*.model
+mlruns/
+*.model
+
+# Data files
+data_and_db/*.csv
+data_and_db/*.json
+!data_and_db/.gitkeep
+
+# Static uploads
+services/backend/static/uploads/*
+!services/backend/static/uploads/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.swn
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# Docker
+docker-compose.override.yml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 
 # Local env files for frontend
 .env.local
