@@ -211,7 +211,7 @@ async def search_products(
     search_params: SearchParams = Depends(get_search_params),
     pagination: PaginationParams = Depends(get_pagination_params),
     use_vector_search: bool = Query(False),
-    session_id: str = Query(..., description="Session ID for analytics"),
+    session_id: Optional[str] = Query(None, description="Session ID for analytics"),
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
@@ -322,20 +322,16 @@ async def get_new_arrivals(
 async def get_popular_products(
     limit: int = Query(default=20, ge=1, le=100),
     days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
 ):
     """Get popular products based on recent purchases"""
     try:
-        from recommendation.services.database_service import db_service
-
-        popular_products = db_service.get_popular_products(limit, days)
-
-        return popular_products
-
-        return {
-            "products": popular_products,
-            "period_days": days,
-            "total_products": len(popular_products),
-        }
+        from app.services.recommendation_service import RecommendationService
+        
+        rec_service = RecommendationService(db)
+        trending = await rec_service.get_trending_products(limit)
+        
+        return trending
 
     except Exception as e:
         logger.error(f"Error getting popular products: {e}")
@@ -343,102 +339,33 @@ async def get_popular_products(
 
 
 @router.get("/recommendations/customers-who-bought-also-bought")
-def get_customers_who_bought_also_bought(
+async def get_customers_who_bought_also_bought(
     product_id: str = Query(..., description="Product ID to find related products"),
     limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
 ):
-    """Get products frequently bought together with the specified product"""
-
-    from recommendation.services.database_service import db_service, get_db_session
-
+    """Get products similar to the specified product using ML models"""
     try:
-        target_product = db_service.get_product_data(product_id=product_id)
-        if not target_product:
+        from app.services.recommendation_service import RecommendationService
+        
+        # Verify product exists
+        product = db.query(Product).filter(Product.id == uuid.UUID(product_id)).first()
+        if not product:
             raise HTTPException(status_code=404, detail="Product not found")
-
-        query = text("""
-            WITH target_orders AS (
-                SELECT DISTINCT o.id as order_id
-                FROM orders o
-                JOIN order_items oi ON o.id = oi.order_id
-                WHERE oi.product_id = :product_id
-                AND o.status IN ('delivered', 'shipped')
-            ),
-            cooccurrence AS (
-                SELECT 
-                    p.id, p.name, p.category_id, p.brand, p.price, p.code, 
-                    p.description, p.specification, p.technical_details, 
-                    p.product_dimensions, p.images, p.product_url, 
-                    p.is_amazon_seller, p.is_active, p.stock_quantity, 
-                    p.in_stock, p.created_at, p.updated_at, p.meta_title, 
-                    p.meta_description, p.tags, pc.name as category_name,
-                    COUNT(*) as frequency
-                FROM target_orders to_
-                JOIN order_items oi ON to_.order_id = oi.order_id
-                JOIN products p ON oi.product_id = p.id
-                LEFT JOIN product_categories pc ON p.category_id = pc.id
-                WHERE p.id != :product_id
-                AND p.is_active = true
-                GROUP BY p.id, p.code, p.name, p.price, p.category_id, pc.name, 
-                         p.brand, p.description, p.specification, p.technical_details, 
-                         p.product_dimensions, p.images, p.product_url, 
-                         p.is_amazon_seller, p.is_active, p.stock_quantity, 
-                         p.in_stock, p.created_at, p.updated_at, p.meta_title, 
-                         p.meta_description, p.tags
-                ORDER BY frequency DESC
-                LIMIT :limit
-            )
-            SELECT * FROM cooccurrence
-        """)
-
-        with get_db_session() as session:
-            result = session.execute(query, {"product_id": product_id, "limit": limit})
-
-        results = []
-        max_freq = 1
-        rows = list(result.fetchall())
-
-        if rows:
-            max_freq = max(row.frequency for row in rows)
-
-        for row in rows:
-            distance = 1.0 - (row.frequency / max_freq)
-
-            results.append(
-                {
-                    "id": str(row.id),
-                    "name": row.name,
-                    "category_id": str(row.category_id) if row.category_id else None,
-                    "brand": row.brand,
-                    "price": float(row.price) if row.price else 0.0,
-                    "code": row.code,
-                    "description": row.description,
-                    "specification": row.specification,
-                    "technical_details": row.technical_details,
-                    "product_dimensions": row.product_dimensions,
-                    "images": row.images or [],
-                    "product_url": row.product_url,
-                    "is_amazon_seller": row.is_amazon_seller,
-                    "is_active": row.is_active,
-                    "stock_quantity": row.stock_quantity,
-                    "in_stock": row.in_stock,
-                    "created_at": row.created_at,
-                    "updated_at": row.updated_at,
-                    "meta_title": row.meta_title,
-                    "meta_description": row.meta_description,
-                    "tags": row.tags or [],
-                    "category_name": row.category_name,
-                    "frequency": row.frequency,
-                    "distance": distance,
-                }
-            )
-
-        return results
+        
+        # Use ML-based recommendation service for product similarity
+        rec_service = RecommendationService(db)
+        similar_products = await rec_service.get_similar_products(
+            product_id=product_id,
+            limit=limit
+        )
+        
+        return similar_products
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting frequently bought together for {product_id}: {e}")
+        logger.error(f"Error getting recommendations for {product_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -475,13 +402,25 @@ async def get_personalized_recommendations(
 def get_new_arrivals(
     limit: int = Query(default=20, ge=1, le=100),
     days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
 ):
     """Get new arrivals within specified time period"""
-
-    from recommendation.services.rfm_service import db_service
-
     try:
-        new_products = db_service.get_new_arrivals(limit)
+        # Query for recently added products
+        from datetime import datetime, timedelta
+        
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        new_products = (
+            db.query(Product)
+            .filter(
+                Product.is_active == True,
+                Product.created_at >= cutoff_date
+            )
+            .order_by(Product.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        
         return new_products
 
     except Exception as e:
@@ -494,213 +433,77 @@ async def get_user_recommendations(
     limit: int = Query(default=10, ge=1, le=15),
     use_ml: bool = Query(default=True, description="Use ML models if available"),
     current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
 ):
-    """Get personalized recommendations for a user"""
-
-    from recommendation.services.ml_recommendation_services import (
-        ml_recommendation_service,
-    )
-    from recommendation.services.recommendation_service import recommendation_service
-
+    """Get personalized recommendations for a user using ML models"""
     try:
-        ml_models_used = []
-        recommendations = []
-        source = "database_fallback"
-
-        # user = db_service.get_user_data(current_user.id)
+        from app.services.recommendation_service import RecommendationService
+        
+        rec_service = RecommendationService(db)
+        
         if not current_user:
-            logger.warning(f"User {current_user.id} not found")
-            recommendations = recommendation_service._get_popular_fallback(limit)
-            source = "popular_fallback"
-        else:
-            if use_ml and ml_recommendation_service.als_model:
-                logger.info(f"Using ML models for user {current_user.id}")
-
-                try:
-                    als_recs = ml_recommendation_service.get_als_recommendations(
-                        current_user.id, limit
-                    )
-                    if als_recs:
-                        recommendations.extend(als_recs)
-                        ml_models_used.append("als_collaborative_filtering")
-                        source = "ml_enhanced"
-                        logger.info(
-                            f"ALS model returned {len(als_recs)} recommendations"
-                        )
-                except Exception as e:
-                    logger.warning(f"ALS model failed: {e}")
-
-                if (
-                    len(recommendations) < limit
-                    and ml_recommendation_service.reorder_model
-                ):
-                    try:
-                        reorder_recs = (
-                            ml_recommendation_service.get_reorder_predictions(
-                                current_user.id, limit - len(recommendations)
-                            )
-                        )
-                        if reorder_recs:
-                            recommendations.extend(reorder_recs)
-                            ml_models_used.append("reorder_prediction")
-                            logger.info(
-                                f"Reorder model returned {len(reorder_recs)} recommendations"
-                            )
-                    except Exception as e:
-                        logger.warning(f"Reorder model failed: {e}")
-
-                seen_products = set()
-                unique_recommendations = []
-                for rec in recommendations:
-                    if rec["product_id"] not in seen_products:
-                        seen_products.add(rec["product_id"])
-                        unique_recommendations.append(rec)
-                recommendations = unique_recommendations
-
-            if len(recommendations) < limit:
-                logger.info(
-                    f"Using database fallback for user {current_user.id} (got {len(recommendations)}, need {limit})"
-                )
-
-                db_recs = recommendation_service._get_collaborative_recommendations(
-                    current_user.id, limit - len(recommendations)
-                )
-                if db_recs:
-                    recommendations.extend(db_recs)
-                    if source == "database_fallback":
-                        source = "database_collaborative"
-
-                if len(recommendations) < limit:
-                    content_recs = (
-                        recommendation_service._get_content_based_recommendations(
-                            current_user.id, limit - len(recommendations)
-                        )
-                    )
-                    if content_recs:
-                        recommendations.extend(content_recs)
-                        if source == "database_fallback":
-                            source = "database_content_based"
-
-                if len(recommendations) < limit:
-                    popular_recs = recommendation_service._get_popular_fallback(
-                        limit - len(recommendations)
-                    )
-                    recommendations.extend(popular_recs)
-                    if not recommendations:
-                        source = "popular_fallback"
-
-        return recommendations
-
+            # Return trending recommendations for anonymous users
+            recommendations = await rec_service.get_trending_products(limit=limit)
+            return {
+                "recommendations": recommendations,
+                "source": "trending",
+                "ml_models_used": ["vector_similarity"],
+            }
+        
+        # Get ML-based user recommendations
+        recommendations = await rec_service.get_user_recommendations(
+            user_id=str(current_user.id),
+            limit=limit
+        )
+        
         return {
-            "user_id": user_id,
             "recommendations": recommendations,
-            "source": source,
-            "cached": False,
-            "ml_models_used": ml_models_used,
+            "source": "ml_based",
+            "ml_models_used": ["vector_similarity", "content_based"],
         }
 
     except Exception as e:
-        logger.error(f"Error getting recommendations for {current_user.id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Recommendation error: {str(e)}")
+        logger.error(f"Error getting recommendations: {e}")
+        # Fallback to trending products
+        try:
+            from app.services.recommendation_service import RecommendationService
+            rec_service = RecommendationService(db)
+            recommendations = await rec_service.get_trending_products(limit=limit)
+            return {
+                "recommendations": recommendations,
+                "source": "fallback_trending",
+                "ml_models_used": [],
+            }
+        except:
+            raise HTTPException(status_code=500, detail=f"Recommendation error: {str(e)}")
 
 
 @router.get("/fbt-recommendations/{product_id}")
-def get_fbt_recommendations(
-    product_id: str, limit: int = Query(default=10, ge=1, le=50)
+async def get_fbt_recommendations(
+    product_id: str,
+    limit: int = Query(default=4, ge=1, le=20),
+    db: Session = Depends(get_db),
 ):
-    """Get Frequently Bought Together (FBT) recommendations"""
+    """Get Frequently Bought Together (FBT) recommendations using ML models"""
     try:
-        from recommendation.services.database_service import get_db_session
+        from app.services.recommendation_service import RecommendationService
+        
+        # Verify product exists
+        product = db.query(Product).filter(Product.id == uuid.UUID(product_id)).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        # Use ML-based recommendation service for similar products
+        rec_service = RecommendationService(db)
+        fbt_products = await rec_service.get_similar_products(
+            product_id=product_id,
+            limit=limit
+        )
+        
+        return fbt_products
 
-        query = text("""
-            WITH product_baskets AS (
-                SELECT 
-                    o.id as basket_id,
-                    array_agg(oi.product_id) as products
-                FROM orders o
-                JOIN order_items oi ON o.id = oi.order_id
-                WHERE o.status IN ('delivered', 'shipped')
-                AND o.created_at > NOW() - INTERVAL '6 months'
-                GROUP BY o.id
-                HAVING COUNT(oi.product_id) > 1
-            ),
-            target_baskets AS (
-                SELECT basket_id, products
-                FROM product_baskets
-                WHERE :product_id = ANY(products)
-            ),
-            unnested_products AS (
-                SELECT 
-                    unnest(products) as product_id,
-                    basket_id
-                FROM target_baskets
-                WHERE array_length(products, 1) > 1
-            ),
-            fbt_products AS (
-                SELECT 
-                    product_id,
-                    COUNT(*) as support
-                FROM unnested_products
-                WHERE product_id != :product_id
-                GROUP BY product_id
-            )
-            SELECT 
-                p.id, p.name, p.category_id, p.brand, p.price, p.code, 
-                p.description, p.specification, p.technical_details, 
-                p.product_dimensions, p.images, p.product_url, 
-                p.is_amazon_seller, p.is_active, p.stock_quantity, 
-                p.in_stock, p.created_at, p.updated_at, p.meta_title, 
-                p.meta_description, p.tags, pc.name as category_name,
-                f.support,
-                ROUND(f.support::numeric / NULLIF((SELECT COUNT(*) FROM target_baskets), 0)::numeric, 3) as confidence
-            FROM fbt_products f
-            JOIN products p ON f.product_id = p.id
-            LEFT JOIN product_categories pc ON p.category_id = pc.id
-            WHERE p.is_active = true
-            ORDER BY f.support DESC, confidence DESC
-            LIMIT :limit
-        """)
-
-        with get_db_session() as session:
-            result = session.execute(query, {"product_id": product_id, "limit": limit})
-
-        results = []
-        for row in result.fetchall():
-            confidence = float(row.confidence or 0)
-            distance = 1.0 - confidence
-
-            results.append(
-                {
-                    "id": str(row.id),
-                    "name": row.name,
-                    "category_id": str(row.category_id) if row.category_id else None,
-                    "brand": row.brand,
-                    "price": float(row.price) if row.price else 0.0,
-                    "code": row.code,
-                    "description": row.description,
-                    "specification": row.specification,
-                    "technical_details": row.technical_details,
-                    "product_dimensions": row.product_dimensions,
-                    "images": row.images or [],
-                    "product_url": row.product_url,
-                    "is_amazon_seller": row.is_amazon_seller,
-                    "is_active": row.is_active,
-                    "stock_quantity": row.stock_quantity,
-                    "in_stock": row.in_stock,
-                    "created_at": row.created_at,
-                    "updated_at": row.updated_at,
-                    "meta_title": row.meta_title,
-                    "meta_description": row.meta_description,
-                    "tags": row.tags or [],
-                    "category_name": row.category_name,
-                    "support": row.support,
-                    "confidence": confidence,
-                    "distance": distance,
-                }
-            )
-
-        return results
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting FBT recommendations for {product_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

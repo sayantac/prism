@@ -27,7 +27,7 @@ export const ProductsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<FilterState>({
     categories: [],
-    priceRange: [0, 10000],
+    priceRange: [0, 1200],
     brands: [],
     rating: 0,
     inStock: null,
@@ -41,10 +41,10 @@ export const ProductsPage: React.FC = () => {
     sort_by: sortBy,
     sort_order: sortOrder,
     ...(filters.categories.length > 0 && {
-      category: filters.categories.join(","),
+      category: filters.categories[0],
     }),
     ...(filters.priceRange[0] > 0 && { min_price: filters.priceRange[0] }),
-    ...(filters.priceRange[1] < 10000 && { max_price: filters.priceRange[1] }),
+    ...(filters.priceRange[1] < 1200 && { max_price: filters.priceRange[1] }),
     ...(filters.brands.length > 0 && { brand: filters.brands.join(",") }),
     ...(filters.rating > 0 && { min_rating: filters.rating }),
     ...(filters.inStock !== null && { in_stock: filters.inStock }),
@@ -65,8 +65,8 @@ export const ProductsPage: React.FC = () => {
     if (category || search?.trim()) {
       setFilters((prev) => ({
         ...prev,
-        categories: [category],
-        search_term: search,
+        categories: category ? [category] : [],
+        search_term: search || null,
       }));
     }
   }, [searchParams]);
@@ -87,10 +87,11 @@ export const ProductsPage: React.FC = () => {
   const handleClearFilters = () => {
     setFilters({
       categories: [],
-      priceRange: [0, 10000],
+      priceRange: [0, 1200],
       brands: [],
       rating: 0,
       inStock: null,
+      search_term: null,
     });
     setPage(1);
   };

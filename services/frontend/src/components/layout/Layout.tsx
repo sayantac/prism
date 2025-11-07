@@ -37,7 +37,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       <footer className="footer footer-center p-4 bg-base-300 text-base-content border-t border-base-200">
         <aside>
           <p className="text-base-content/70">
-            Copyright © 2024 - All rights reserved by Store Ltd.
+            Copyright © 2025 - All rights reserved by Nagarro
           </p>
         </aside>
       </footer>

@@ -13,6 +13,7 @@ import type {
   ProductReview,
   ProductFilters,
   PaginatedResponse,
+  SearchResponse,
 } from "@/types";
 import type { PaginationParams } from "@/types/common";
 
@@ -63,7 +64,14 @@ export const productApi = apiSlice.injectEndpoints({
 
     // Search products with filters
     searchProducts: builder.query<PaginatedResponse<Product>, SearchParams>({
-      query: (params) => buildQueryWithParams("/search", params),
+      query: (params) => buildQueryWithParams("/products/search", params),
+      transformResponse: (response: SearchResponse<Product>): PaginatedResponse<Product> => ({
+        items: response.products,
+        total: response.total,
+        page: response.page,
+        pages: response.pages,
+        limit: response.size,
+      }),
       providesTags: (result) => providesList(result, "Product"),
       transformErrorResponse,
     }),
@@ -116,14 +124,9 @@ export const productApi = apiSlice.injectEndpoints({
       transformErrorResponse,
     }),
 
-    // Get related products (recommendations)
-    getRelatedProducts: builder.query<Product[], string>({
-      query: (productId) => `/products/${productId}/related`,
-      providesTags: (_result, _error, productId) => [
-        { type: "Product", id: `RELATED-${productId}` },
-      ],
-      transformErrorResponse,
-    }),
+    // NOTE: getRelatedProducts has been moved to recommendationApi.ts
+    // to use the correct backend endpoint (/products/recommendations/customers-who-bought-also-bought)
+    // If you need related products, import useGetRelatedProductsQuery from recommendationApi
 
     // Get trending products
     getTrendingProducts: builder.query<Product[], { limit?: number }>({
@@ -145,7 +148,7 @@ export const {
   useAddProductReviewMutation,
   useAddToRecentlyViewedMutation,
   useGetRecentlyViewedQuery,
-  useGetRelatedProductsQuery,
+  // useGetRelatedProductsQuery is now in recommendationApi.ts
   useGetTrendingProductsQuery,
 } = productApi;
 

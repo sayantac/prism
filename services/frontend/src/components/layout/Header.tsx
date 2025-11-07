@@ -65,8 +65,8 @@ export const Header: React.FC = () => {
             />
 
             <Link to="/" className="flex items-center space-x-2">
-              <span className="text-xl font-bold text-base-content hidden sm:block">
-                SmartShop
+              <span className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent hidden sm:block">
+                PRISM
               </span>
             </Link>
           </div>

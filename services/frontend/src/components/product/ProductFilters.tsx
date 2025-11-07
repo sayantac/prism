@@ -9,15 +9,16 @@ import { Input } from "../ui/Input";
 
 interface FilterState {
   categories: string[];
-  priceRange: { min: number; max: number };
+  priceRange: [number, number];
   rating: number;
-  inStock: boolean;
+  inStock: boolean | null;
   brands: string[];
+  search_term?: any;
 }
 
 interface ProductFiltersProps {
-  // filters: FilterState;
-  onFiltersChange: (filters: FilterState) => void;
+  filters?: FilterState;
+  onFiltersChange: (filters: any) => void;
   onClear?: () => void;
   className?: string;
 }
@@ -30,9 +31,9 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
 
   const [filters, setFilters] = useState<FilterState>({
     categories: [],
-    priceRange: { min: 0, max: 1000 },
+    priceRange: [0, 1200],
     rating: 0,
-    inStock: true,
+    inStock: null,
     brands: [],
   });
 
@@ -64,17 +65,17 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
   const clearAllFilters = () => {
     setFilters({
       categories: [],
-      priceRange: { min: 0, max: 1000 },
+      priceRange: [0, 1200],
       rating: 0,
-      inStock: true,
+      inStock: null,
       brands: [],
     });
   };
 
   const hasActiveFilters =
     filters.categories.length > 0 ||
-    filters.priceRange.min > 0 ||
-    filters.priceRange.max < 1000 ||
+    filters.priceRange[0] > 0 ||
+    filters.priceRange[1] < 1200 ||
     filters.rating > 0 ||
     filters.inStock ||
     filters.brands.length > 0;
@@ -146,16 +147,14 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
                       className="flex items-center space-x-2 cursor-pointer"
                     >
                       <input
-                        type="checkbox"
-                        className="checkbox checkbox-sm"
+                        type="radio"
+                        name="category"
+                        className="radio radio-sm"
                         checked={filters.categories.includes(category.id)}
                         onChange={(e) => {
-                          const newCategories = e.target.checked
-                            ? [...filters.categories, category.id]
-                            : filters.categories.filter(
-                                (id) => id !== category.id
-                              );
-                          updateFilters("categories", newCategories);
+                          if (e.target.checked) {
+                            updateFilters("categories", [category.id]);
+                          }
                         }}
                       />
                       <span className="text-sm">{category.name}</span>
@@ -185,24 +184,24 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
                     <Input
                       type="number"
                       placeholder="Min"
-                      value={filters.priceRange.min}
+                      value={filters.priceRange[0]}
                       onChange={(e) =>
-                        updateFilters("priceRange", {
-                          ...filters.priceRange,
-                          min: Number(e.target.value),
-                        })
+                        updateFilters("priceRange", [
+                          Number(e.target.value),
+                          filters.priceRange[1],
+                        ])
                       }
                       className="w-full"
                     />
                     <Input
                       type="number"
                       placeholder="Max"
-                      value={filters.priceRange.max}
+                      value={filters.priceRange[1]}
                       onChange={(e) =>
-                        updateFilters("priceRange", {
-                          ...filters.priceRange,
-                          max: Number(e.target.value),
-                        })
+                        updateFilters("priceRange", [
+                          filters.priceRange[0],
+                          Number(e.target.value),
+                        ])
                       }
                       className="w-full"
                     />
@@ -210,13 +209,13 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
                   <input
                     type="range"
                     min="0"
-                    max="1000"
-                    value={filters.priceRange.max}
+                    max="1200"
+                    value={filters.priceRange[1]}
                     onChange={(e) =>
-                      updateFilters("priceRange", {
-                        ...filters.priceRange,
-                        max: Number(e.target.value),
-                      })
+                      updateFilters("priceRange", [
+                        filters.priceRange[0],
+                        Number(e.target.value),
+                      ])
                     }
                     className="range range-primary range-sm"
                   />
@@ -244,7 +243,7 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
                     <input
                       type="checkbox"
                       className="checkbox checkbox-sm"
-                      checked={filters.inStock}
+                      checked={filters.inStock === true}
                       onChange={(e) =>
                         updateFilters("inStock", e.target.checked)
                       }

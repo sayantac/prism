@@ -7,6 +7,7 @@ import { SearchInput } from "../../components/common/SearchInput";
 import { ProductCarousel } from "../../components/product/ProductCarousel";
 import { ProductGrid } from "../../components/product/ProductGrid";
 import { useSearchProductsQuery } from "@/store/api/productApi";
+import { useAppSelector } from "@/store/hooks";
 
 export const SearchPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -18,7 +19,9 @@ export const SearchPage: React.FC = () => {
     max_price: "",
     sort: "relevance",
   });
-  const [sponseredData, setSponseredData] = useState();
+
+  // Get current user from auth state
+  const currentUser = useAppSelector((state) => state.auth.user);
 
   const { data: searchResults, isLoading } = useSearchProductsQuery(
     {
@@ -26,6 +29,7 @@ export const SearchPage: React.FC = () => {
       ...filters,
       min_price: filters.min_price ? Number(filters.min_price) : undefined,
       max_price: filters.max_price ? Number(filters.max_price) : undefined,
+      ...(currentUser && { session_id: currentUser.id }), // Only add session_id if user is logged in
       page: currentPage,
       limit: 20,
     },
@@ -33,6 +37,15 @@ export const SearchPage: React.FC = () => {
       skip: !query,
     }
   );
+
+  // Extract sponsored products from search results (backend already includes them)
+  const sponsoredProducts = searchResults?.items?.filter((p: any) => p.config?.is_sponsored) || [];
+
+  // Sync query state with URL params
+  useEffect(() => {
+    const urlQuery = searchParams.get("q") || "";
+    setQuery(urlQuery);
+  }, [searchParams]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -42,27 +55,8 @@ export const SearchPage: React.FC = () => {
   }, [query, currentPage, setSearchParams]);
 
   const handleSearch = (newQuery: string) => {
-    handleSponserSearch(newQuery);
     setQuery(newQuery);
     setCurrentPage(1);
-  };
-
-  const handleSponserSearch = (newQuery: string) => {
-    const myHeaders = new Headers();
-    myHeaders.append("accept", "application/json");
-
-    const requestOptions: RequestInit = {
-      method: "GET",
-      headers: myHeaders,
-      redirect: "follow" as RequestRedirect,
-    };
-
-    fetch(
-      `http://127.0.0.1:8003/sponsored-search?query=${newQuery}`,
-      requestOptions
-    )
-      .then((response) => response.json())
-      .then((result) => setSponseredData(result));
   };
 
   const handleFiltersChange = (newFilters: any) => {
@@ -98,13 +92,16 @@ export const SearchPage: React.FC = () => {
           <div className="mb-6">
             <p className="text-base-content/70">
               {searchResults
-                ? `Found  results for "${query}"`
+                ? `Found ${searchResults.total || 0} results for "${query}"`
                 : `Searching for "${query}"...`}
             </p>
           </div>
 
-          {sponseredData && (sponseredData as any[]).length > 0 && (
-            <ProductCarousel products={sponseredData} itemsPerView={6} />
+          {sponsoredProducts && sponsoredProducts.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold mb-4">Sponsored Products</h2>
+              <ProductCarousel products={sponsoredProducts} itemsPerView={6} />
+            </div>
           )}
 
           {searchResults &&

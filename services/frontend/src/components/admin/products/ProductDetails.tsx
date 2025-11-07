@@ -7,7 +7,7 @@ import {
   ShoppingCart,
   Truck,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "react-hot-toast";
 import { useParams } from "react-router-dom";
 import { useAuth } from "@/hooks";
@@ -21,7 +21,6 @@ import {
 import { ImageGallery } from "../../common/ImageGallery";
 import { PriceDisplay } from "../../common/PriceDisplay";
 import { RecommendationSection } from "../../common/RecommendationSection";
-import { ProductCarousel } from "../../product/ProductCarousel";
 import { Badge } from "../../ui/Badge";
 import { Button } from "../../ui/Button";
 import { Loading } from "../../ui/Loading";
@@ -29,12 +28,9 @@ import { Loading } from "../../ui/Loading";
 export const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [quantity, setQuantity] = useState(1);
-  const [sponseredData, setSponseredData] = useState();
   const { isAuthenticated, user } = useAuth();
 
   const { data: product, isLoading } = useGetProductByIdQuery(id!);
-  // const { data: productCartRecommendations,isLoading: isCartRecommendationsLoading } =
-  //   useGetCartRecommendationsQuery(user.id, { skip: !user?.id });
   const { data: relatedProducts } = useGetRelatedProductsQuery(
     { id: id, limit: 8 },
     {
@@ -47,29 +43,6 @@ export const ProductDetail: React.FC = () => {
       skip: !id,
     }
   );
-  const handleSponserSearch = (newQuery: string) => {
-    const myHeaders = new Headers();
-    myHeaders.append("accept", "application/json");
-
-    const requestOptions: RequestInit = {
-      method: "GET",
-      headers: myHeaders,
-      redirect: "follow",
-    };
-
-    fetch(
-      `http://127.0.0.1:8003/sponsored-search?query=${newQuery}`,
-      requestOptions
-    )
-      .then((response) => response.json())
-      .then((result) => setSponseredData(result));
-  };
-
-  useEffect(() => {
-    if (product && product.name) {
-      handleSponserSearch(product.name);
-    }
-  }, [product]);
 
   const { data: recommendations, isLoading: recommendationsLoading } =
     useGetRecommendationsQuery(user?.id ?? "", {
@@ -143,7 +116,13 @@ export const ProductDetail: React.FC = () => {
           {/* Product Images */}
           <div>
             <ImageGallery 
-              images={product.images.map(img => img.url)} 
+              images={
+                Array.isArray(product.images)
+                  ? product.images.map(img => 
+                      typeof img === 'string' ? img : img.url
+                    )
+                  : []
+              } 
               alt={product.name} 
             />
           </div>
@@ -311,26 +290,20 @@ export const ProductDetail: React.FC = () => {
             </div>
           </section>
         )}
-      {/* {sponseredData && (sponseredData as any[]).length > 0 && (
-        <ProductCarousel products={sponseredData} itemsPerView={5} />
-      )} */}
       {relatedProducts && relatedProducts.length > 0 && (
         <section className="py-8 bg-base-200">
           <div className="container mx-auto px-2">
             <div className="text-center mb-6  ">
               <h2 className="text-2xl font-bold text-base-content mb-2">
-                Sponsored Product
-                {/* <span className="text-primary">
-                  {(product.name as string).split(",")[0]}
-                </span> */}
+                Similar Products
               </h2>
-              {/* <p className="text-lg text-base-content/70">
-                Based on content similarity
-              </p> */}
             </div>
-            {sponseredData && (sponseredData as any[]).length > 0 && (
-              <ProductCarousel products={sponseredData} itemsPerView={5} />
-            )}
+            <RecommendationSection
+              title="Related Products"
+              products={relatedProducts}
+              limit={8}
+              isLoading={false}
+            />
           </div>
         </section>
       )}
@@ -363,7 +336,7 @@ export const ProductDetail: React.FC = () => {
           </div>
         </section>
       )}
-      {fbtProducts && fbtProducts.recommendations.length > 0 && (
+      {fbtProducts && Array.isArray(fbtProducts) && fbtProducts.length > 0 && (
         <section className="py-8 bg-base-300">
           <div className="container mx-auto px-2">
             <div className="text-center mb-6  ">
@@ -379,7 +352,7 @@ export const ProductDetail: React.FC = () => {
             </div>
             <RecommendationSection
               title="Related Products"
-              products={fbtProducts.recommendations}
+              products={fbtProducts}
               limit={5}
               isLoading={fbtLoading}
             />

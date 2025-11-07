@@ -32,6 +32,17 @@ export interface PaginatedResponse<T> {
   limit?: number;
 }
 
+export interface SearchResponse<T> {
+  products: T[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+  query?: string;
+  filters_applied?: Record<string, any>;
+  search_time_ms?: number;
+}
+
 export interface SortParams {
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
@@ -54,11 +65,13 @@ export interface ApiError {
 // ==================== Search & Filter ====================
 
 export interface SearchParams extends PaginationParams, SortParams {
+  q?: string;
   query?: string;
   category?: string;
   min_price?: number;
   max_price?: number;
   in_stock?: boolean;
+  session_id?: string;
 }
 
 export interface FilterOption {
