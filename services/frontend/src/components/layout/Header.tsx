@@ -11,7 +11,7 @@ import {
   User,
 } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAdminAuth } from "@/hooks";
 import { useAuth } from "@/hooks";
 import { useGetCurrentUserQuery } from "../../store/api/authApi";
@@ -29,6 +29,7 @@ import { Button } from "../ui/Button";
 export const Header: React.FC = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { isAuthenticated } = useAuth();
   const { theme } = useSelector((state: RootState) => state.ui);
@@ -38,6 +39,10 @@ export const Header: React.FC = () => {
   const { data: user } = useGetCurrentUserQuery(undefined, {
     skip: !isAuthenticated,
   });
+
+  // Get current search query from URL
+  const searchParams = new URLSearchParams(location.search);
+  const currentSearchQuery = searchParams.get('q') || '';
 
   const handleSearch = (query: string) => {
     if (query.trim()) {
@@ -74,8 +79,10 @@ export const Header: React.FC = () => {
           {/* Search Bar - Desktop */}
           <div className="hidden lg:block flex-1 max-w-2xl mx-8">
             <SearchInput
+              key={currentSearchQuery || location.pathname} // Reset when route or query changes
               placeholder="Search for products, brands and more..."
               onSearch={handleSearch}
+              defaultValue={currentSearchQuery}
             />
           </div>
 

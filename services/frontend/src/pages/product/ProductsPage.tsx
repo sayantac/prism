@@ -54,7 +54,6 @@ export const ProductsPage: React.FC = () => {
   const {
     data: productsData,
     isLoading,
-    error,
   } = useGetProductsQuery(queryParams);
   console.log(productsData);
   // Handle URL search params
@@ -184,7 +183,7 @@ export const ProductsPage: React.FC = () => {
             <SearchInput
               placeholder="Search products..."
               onSearch={handleSearch}
-              initialValue={searchParams.get("search") || ""}
+              defaultValue={searchParams.get("search") || ""}
             />
           </div>
 

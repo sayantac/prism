@@ -78,6 +78,7 @@ export const SearchPage: React.FC = () => {
         </h1>
         <div className="max-w-2xl">
           <SearchInput
+            key={query} // Re-mount when query changes from URL
             onSearch={handleSearch}
             defaultValue={query}
             placeholder="Search for products, brands, categories..."
