@@ -3,7 +3,7 @@ import time
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import asc, desc, or_
+from sqlalchemy import asc, desc, or_, cast, Text
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
@@ -62,8 +62,8 @@ class SearchService:
         search_filter = or_(
             Product.name.ilike(f"%{search_term}%"),
             Product.description.ilike(f"%{search_term}%"),
-            Product.specification.ilike(f"%{search_term}%"),
-            Product.technical_details.ilike(f"%{search_term}%"),
+            cast(Product.specification, Text).ilike(f"%{search_term}%"),
+            cast(Product.technical_details, Text).ilike(f"%{search_term}%"),
             Product.brand.ilike(f"%{search_term}%"),
             Product.code.ilike(f"%{search_term}%"),
         )

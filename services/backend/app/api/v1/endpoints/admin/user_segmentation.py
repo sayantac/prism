@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.core.permissions import require_permission
 from app.models import User
+from app.services.user_analytics_service import UserAnalyticsService
 from app.services.user_segmentation_service import UserSegmentationService
 
 router = APIRouter()
@@ -22,22 +23,22 @@ logger = logging.getLogger(__name__)
 class SegmentCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
-    segment_rules: Dict[str, Any]
+    criteria: Dict[str, Any]
     segment_type: str = Field(
         default="custom", regex="^(custom|rfm|behavioral|ml_cluster)$"
     )
     is_active: bool = Field(default=True)
     auto_update: bool = Field(default=True)
-    target_size: Optional[int] = Field(None, ge=1)
+    update_frequency: Optional[str] = Field(None, regex="^(daily|weekly|monthly)$")
 
 
 class SegmentUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
-    segment_rules: Optional[Dict[str, Any]] = None
+    criteria: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
     auto_update: Optional[bool] = None
-    target_size: Optional[int] = Field(None, ge=1)
+    update_frequency: Optional[str] = Field(None, regex="^(daily|weekly|monthly)$")
 
 
 class AddUserToSegment(BaseModel):
@@ -326,10 +327,29 @@ async def get_segment_analytics(
 ) -> Dict[str, Any]:
     """Get analytics for segments"""
     try:
-        service = UserSegmentationService(db)
-        analytics = service.get_segment_analytics(segment_id, days)
+        # Get all segments with their member counts
+        segmentation_service = UserSegmentationService(db)
+        segments = segmentation_service.get_segments(active_only=False)
+        
+        # Transform to the format expected by frontend (array of segment performance objects)
+        segment_performance = [
+            {
+                "segment_id": str(s.get("id")),
+                "segment_name": s.get("name"),
+                "user_count": s.get("member_count", 0),
+                "segment_type": s.get("segment_type", "custom"),
+                "is_active": s.get("is_active", False),
+                "conversion_rate": 0.0,  # TODO: Calculate from actual data
+                "avg_order_value": 0.0,  # TODO: Calculate from actual data
+            }
+            for s in segments
+        ]
+        
+        # Filter by segment_id if provided
+        if segment_id:
+            segment_performance = [sp for sp in segment_performance if sp["segment_id"] == segment_id]
 
-        return {"status": "success", "data": analytics}
+        return segment_performance
 
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

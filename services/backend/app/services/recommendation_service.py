@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import List, Optional
 
-from sqlalchemy import desc, func
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.models import Product, SearchAnalytics, User
@@ -27,24 +27,22 @@ class RecommendationService:
         """Get products similar to given product using vector similarity"""
         product = self.db.query(Product).filter(Product.id == product_id).first()
 
-        if not product or not product.embedding:
+        if not product or product.embedding is None:
             return []
 
-        similarity = func.cosine_distance(Product.embedding, product.embedding)
-
+        # Use pgvector's cosine_distance method for vector similarity
         similar_products = (
             self.db.query(Product)
             .filter(Product.id != product_id)
-            .filter(Product.is_active == True)
-            .filter(Product.is_embedding_generated == True)
+            .filter(Product.is_active.is_(True))
+            .filter(Product.is_embedding_generated.is_(True))
             .filter(Product.embedding.isnot(None))
-            .add_columns(similarity.label("similarity"))
-            .order_by(similarity)
+            .order_by(Product.embedding.cosine_distance(product.embedding))
             .limit(limit)
             .all()
         )
 
-        return [result[0] for result in similar_products]
+        return similar_products
 
     async def get_user_recommendations(
         self, user_id: str, limit: int = 20
@@ -71,7 +69,7 @@ class RecommendationService:
         recent_searches = (
             self.db.query(SearchAnalytics)
             .filter(SearchAnalytics.user_id == user_id)
-            .order_by(desc(SearchAnalytics.timestamp))
+            .order_by(desc(SearchAnalytics.created_at))
             .limit(3)
             .all()
         )

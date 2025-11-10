@@ -27,17 +27,22 @@ class PerformanceTracker(BaseRecommendationService):
             # Get metrics from database
             metrics = (
                 self.db.query(RecommendationMetrics)
-                .filter(RecommendationMetrics.timestamp >= since)
+                .filter(RecommendationMetrics.created_at >= since)
                 .all()
             )
 
             if not metrics:
                 return self._empty_performance_metrics()
 
-            total_displays = sum(m.total_displays or 0 for m in metrics)
-            total_clicks = sum(m.total_clicks or 0 for m in metrics)
-            total_conversions = sum(m.total_conversions or 0 for m in metrics)
-            total_revenue = sum(m.total_revenue or 0.0 for m in metrics)
+            # Calculate metrics from actual schema fields
+            total_displays = len(metrics)  # Each record is a recommendation display
+            total_clicks = sum(
+                len(m.clicked_products) if m.clicked_products else 0 for m in metrics
+            )
+            total_conversions = sum(
+                len(m.purchased_products) if m.purchased_products else 0 for m in metrics
+            )
+            total_revenue = sum(float(m.revenue_generated or 0.0) for m in metrics)
 
             ctr = (total_clicks / total_displays * 100) if total_displays > 0 else 0
             cvr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
@@ -112,9 +117,10 @@ class PerformanceTracker(BaseRecommendationService):
             metric = RecommendationMetrics(
                 id=uuid.uuid4(),
                 user_id=uuid.UUID(user_id),
-                recommendation_ids=recommendation_ids,
-                total_displays=len(recommendation_ids),
-                context=context,
+                recommended_products=recommendation_ids,  # Store as JSONB array
+                recommendation_context=context,
+                recommendation_type=context.get("type", "unknown"),
+                session_id=context.get("session_id"),
             )
 
             self.db.add(metric)
@@ -133,22 +139,32 @@ class PerformanceTracker(BaseRecommendationService):
     ):
         """Log recommendation interaction (click, conversion)."""
         try:
-            # Find the display metric
+            # Find the most recent display metric for this user
             metric = (
                 self.db.query(RecommendationMetrics)
-                .filter(
-                    RecommendationMetrics.user_id == uuid.UUID(user_id),
-                    RecommendationMetrics.recommendation_ids.contains([recommendation_id]),
-                )
-                .order_by(RecommendationMetrics.timestamp.desc())
+                .filter(RecommendationMetrics.user_id == uuid.UUID(user_id))
+                .order_by(RecommendationMetrics.created_at.desc())
                 .first()
             )
 
-            if metric:
+            if metric and product_id:
                 if interaction_type == "click":
-                    metric.total_clicks = (metric.total_clicks or 0) + 1
+                    clicked = metric.clicked_products or []
+                    if product_id not in clicked:
+                        clicked.append(product_id)
+                    metric.clicked_products = clicked
+                    
                 elif interaction_type == "conversion":
-                    metric.total_conversions = (metric.total_conversions or 0) + 1
+                    purchased = metric.purchased_products or []
+                    if product_id not in purchased:
+                        purchased.append(product_id)
+                    metric.purchased_products = purchased
+
+                # Recalculate rates
+                total_recommended = len(metric.recommended_products or [])
+                if total_recommended > 0:
+                    metric.click_through_rate = len(metric.clicked_products or []) / total_recommended
+                    metric.conversion_rate = len(metric.purchased_products or []) / total_recommended
 
                 self.db.commit()
 

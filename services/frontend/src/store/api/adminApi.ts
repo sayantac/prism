@@ -5,19 +5,80 @@ export const adminApi = apiSlice.injectEndpoints({
     // Dashboard
     getAdminDashboard: builder.query({
       query: (params = { days: 90 }) => ({
-        url: "/admin/analytics/dashboard",
+        url: "/admin/dashboard/real-time-stats",
         params,
       }),
       providesTags: ["Analytics"],
       keepUnusedDataFor: 300, // 5 minutes
+      transformResponse: (response: any) => {
+        // Extract and transform data structure
+        const data = response?.data || response;
+        
+        // Map backend structure to frontend expectations
+        return {
+          revenue: {
+            total: data?.revenue?.today || 0,
+            today: data?.revenue?.today || 0,
+            last_24h: data?.revenue?.last_24h || 0,
+            growth_rate: data?.revenue?.growth_rate || 0,
+          },
+          orders: {
+            total: data?.orders?.today || 0,
+            today: data?.orders?.today || 0,
+            last_24h: data?.orders?.last_24h || 0,
+            last_hour: data?.orders?.last_hour || 0,
+            growth_rate: data?.orders?.growth_rate || 0,
+          },
+          users: {
+            active: data?.users?.active_24h || 0,
+            new_today: data?.users?.new_today || 0,
+            active_24h: data?.users?.active_24h || 0,
+          },
+          searches: data?.searches || {},
+          conversion: data?.conversion || {},
+          timestamp: data?.timestamp,
+        };
+      },
     }),
     getSystemStatus: builder.query({
-      query: () => "/admin/system/status",
+      query: () => "/admin/dashboard/system-health",
       providesTags: ["System"],
       keepUnusedDataFor: 60, // 1 minute
+      transformResponse: (response: any) => {
+        // Transform nested structure to flat structure expected by frontend
+        console.log('System Status Raw Response:', response);
+        const data = response?.data || response;
+        console.log('System Status Data:', data);
+        const components = data?.components || {};
+        console.log('System Status Components:', components);
+        
+        const transformed = {
+          overall_status: data?.overall_status || "unknown",
+          timestamp: data?.timestamp,
+          // Fields for SystemHealth component
+          database_status: components?.database?.status || "unknown",
+          database_response_time: components?.database?.response_time_ms || 0,
+          api_status: components?.api?.status || "unknown",
+          api_response_time: components?.api?.avg_response_time_ms || 0,
+          network_status: components?.api?.status || "unknown",
+          network_response_time: components?.api?.avg_response_time_ms || 0,
+          ml_models_status: components?.ml_models?.status || "unknown",
+          ml_models_active_count: components?.ml_models?.active_models || 0,
+          // Fields for EnhancedCharts SystemStatusWidget
+          database: components?.database?.status || "unknown",
+          ml_models_active: components?.ml_models?.active_models || 0,
+          recent_activity: {
+            orders_24h: 0, // TODO: Add to backend if needed
+            new_users_24h: 0, // TODO: Add to backend if needed
+          },
+        };
+        
+        console.log('System Status Transformed:', transformed);
+        return transformed;
+      },
     }),
     getSystemConfig: builder.query({
-      query: () => "/admin/system/config",
+      query: () => "/admin/settings/settings",
       providesTags: ["System"],
       keepUnusedDataFor: 3600, // 1 hour
     }),
@@ -117,7 +178,7 @@ export const adminApi = apiSlice.injectEndpoints({
     // Analytics
     getKpis: builder.query({
       query: (params = { days: 90 }) => ({
-        url: "/admin/analytics/kpis",
+        url: "/admin/dashboard/real-time-stats",
         params,
       }),
       providesTags: ["Analytics"],
@@ -125,16 +186,40 @@ export const adminApi = apiSlice.injectEndpoints({
     }),
     getRecommendationPerformance: builder.query({
       query: (params = { days: 90 }) => ({
-        url: "/admin/analytics/recommendations/performance",
+        url: "/admin/recommendation-engine/performance",
         params,
       }),
       providesTags: ["Recommendation", "Analytics"],
       keepUnusedDataFor: 180,
+      transformResponse: (response: any) => {
+        // Backend returns aggregated metrics object, convert to array format for component
+        const data = response?.data || {};
+        
+        // If no data, return empty array
+        if (!data.total_displays) {
+          return [];
+        }
+        
+        // Convert single aggregated metrics into a summary "Overall" algorithm entry
+        return [{
+          algorithm: "Overall Performance",
+          impressions: data.total_displays || 0,
+          click_through_rate: data.ctr || 0,
+          conversion_rate: data.cvr || 0,
+          revenue_impact: data.total_revenue || 0,
+          total_clicks: data.total_clicks || 0,
+          total_conversions: data.total_conversions || 0,
+        }];
+      },
     }),
     getSegmentPerformance: builder.query({
-      query: () => "/admin/analytics/segments/performance",
+      query: () => "/admin/user-segmentation/segments/analytics",
       providesTags: ["UserSegment", "Analytics"],
       keepUnusedDataFor: 600,
+      transformResponse: (response: any) => {
+        // Backend returns array directly, ensure it's always an array
+        return Array.isArray(response) ? response : [];
+      },
     }),
     getRevenueData: builder.query({
       query: (params: any = {}) => ({
@@ -180,12 +265,16 @@ export const adminApi = apiSlice.injectEndpoints({
 
     // ML & AI Features
     getMlConfigs: builder.query({
-      query: () => "/admin/ml-config",
+      query: () => "/admin/recommendation-engine/configs",
       providesTags: ["MLConfig"],
+      transformResponse: (response: any) => {
+        // Extract data array from {status: 'success', data: [...]} wrapper
+        return response?.data || [];
+      },
     }),
     createMlConfig: builder.mutation({
       query: (configData) => ({
-        url: "/admin/ml-config",
+        url: "/admin/recommendation-engine/configs",
         method: "POST",
         body: configData,
       }),
@@ -193,7 +282,7 @@ export const adminApi = apiSlice.injectEndpoints({
     }),
     updateMlConfig: builder.mutation({
       query: ({ id, ...configData }) => ({
-        url: `/admin/ml-config/${id}`,
+        url: `/admin/recommendation-engine/configs/${id}`,
         method: "PUT",
         body: configData,
       }),
@@ -201,18 +290,18 @@ export const adminApi = apiSlice.injectEndpoints({
     }),
     activateMlConfig: builder.mutation({
       query: (configId) => ({
-        url: `/admin/ml-config/${configId}/activate`,
+        url: `/admin/recommendation-engine/configs/${configId}/activate`,
         method: "POST",
       }),
       invalidatesTags: ["MLConfig"],
     }),
     getModelPerformance: builder.query({
-      query: (configId) => `/admin/ml-config/${configId}/performance`,
+      query: (configId) => `/admin/recommendation-engine/configs/${configId}/performance`,
       providesTags: ["MLConfig"],
     }),
     trainModels: builder.mutation({
       query: (trainingData) => ({
-        url: "/admin/ml-config/train",
+        url: "/admin/recommendation-engine/train",
         method: "POST",
         body: trainingData,
       }),
@@ -221,13 +310,17 @@ export const adminApi = apiSlice.injectEndpoints({
 
     // User Segmentation
     getUserSegments: builder.query({
-      query: () => "/admin/segmentation/",
+      query: () => "/admin/user-segmentation/segments",
       providesTags: ["UserSegment"],
       keepUnusedDataFor: 600,
+      transformResponse: (response: any) => {
+        // Extract data array from {status: 'success', data: [...], total_count: X} wrapper
+        return response?.data || [];
+      },
     }),
     createUserSegment: builder.mutation({
       query: (segmentData) => ({
-        url: "/admin/segmentation",
+        url: "/admin/user-segmentation/segments",
         method: "POST",
         body: segmentData,
       }),
@@ -235,7 +328,7 @@ export const adminApi = apiSlice.injectEndpoints({
     }),
     updateUserSegment: builder.mutation({
       query: ({ segmentId, ...segmentData }) => ({
-        url: `/admin/segmentation/${segmentId}`,
+        url: `/admin/user-segmentation/segments/${segmentId}`,
         method: "PUT",
         body: segmentData,
       }),
@@ -243,7 +336,7 @@ export const adminApi = apiSlice.injectEndpoints({
     }),
     recalculateSegment: builder.mutation({
       query: (segmentId) => ({
-        url: `/admin/segmentation/${segmentId}/recalculate`,
+        url: `/admin/user-segmentation/segments/${segmentId}/refresh`,
         method: "POST",
       }),
       invalidatesTags: ["UserSegment"],

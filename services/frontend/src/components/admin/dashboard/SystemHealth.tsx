@@ -13,6 +13,8 @@ export const SystemHealth: React.FC = () => {
     pollingInterval: 60000, // Poll every minute
   });
 
+  console.log("SystemHealth component - health data:", health);
+
   if (isLoading) {
     return <div className="skeleton h-64 w-full"></div>;
   }
@@ -96,17 +98,23 @@ export const SystemHealth: React.FC = () => {
           ))}
         </div>
 
-        {/* Overall Health Score */}
+        {/* Overall Health Status */}
         <div className="divider"></div>
         <div className="flex items-center justify-between">
           <span className="font-semibold">Overall Health</span>
           <div className="flex items-center gap-2">
-            <div
-              className="radial-progress text-success"
-              style={{ "--value": health?.overall_score || 0 } as any}
-            >
-              {health?.overall_score || 0}%
-            </div>
+            {health?.overall_status === "healthy" && (
+              <CheckCircle className="w-5 h-5 text-success" />
+            )}
+            {health?.overall_status === "warning" && (
+              <AlertTriangle className="w-5 h-5 text-warning" />
+            )}
+            {health?.overall_status === "critical" && (
+              <AlertTriangle className="w-5 h-5 text-error" />
+            )}
+            <span className="font-medium capitalize">
+              {health?.overall_status || "unknown"}
+            </span>
           </div>
         </div>
       </div>

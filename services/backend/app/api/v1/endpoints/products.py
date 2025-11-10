@@ -165,7 +165,7 @@ async def list_categories(
         categories = (
             db.query(ProductCategory)
             .filter(ProductCategory.is_active == True, ProductCategory.parent_id == None)
-            .order_by(ProductCategory.display_order, ProductCategory.name)
+            .order_by(ProductCategory.sort_order, ProductCategory.name)
             .all()
         )
     else:
@@ -180,7 +180,7 @@ async def list_categories(
                 "id": cat.id,
                 "name": cat.name,
                 "description": cat.description,
-                "display_order": cat.display_order,
+                "sort_order": cat.sort_order,
                 "children": [],
             }
         )
@@ -188,7 +188,7 @@ async def list_categories(
     return root_categories
 
 
-@router.get("/trending")
+@router.get("/trending", response_model=List[ProductResponse])
 async def get_trending_products(
     limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db)
@@ -302,7 +302,7 @@ async def generate_product_embedding_task(product_id: str, db: Session):
         db.rollback()
 
 
-@router.get("/recommendations/new-arrivals")
+@router.get("/recommendations/new-arrivals", response_model=List[ProductResponse])
 async def get_new_arrivals(
     limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db)
@@ -338,7 +338,7 @@ async def get_popular_products(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/recommendations/customers-who-bought-also-bought")
+@router.get("/recommendations/customers-who-bought-also-bought", response_model=List[ProductResponse])
 async def get_customers_who_bought_also_bought(
     product_id: str = Query(..., description="Product ID to find related products"),
     limit: int = Query(default=10, ge=1, le=50),
@@ -444,8 +444,11 @@ async def get_user_recommendations(
         if not current_user:
             # Return trending recommendations for anonymous users
             recommendations = await rec_service.get_trending_products(limit=limit)
+            recommendations_dict = [
+                ProductResponse.from_orm(product) for product in recommendations
+            ]
             return {
-                "recommendations": recommendations,
+                "recommendations": recommendations_dict,
                 "source": "trending",
                 "ml_models_used": ["vector_similarity"],
             }
@@ -455,9 +458,12 @@ async def get_user_recommendations(
             user_id=str(current_user.id),
             limit=limit
         )
+        recommendations_dict = [
+            ProductResponse.from_orm(product) for product in recommendations
+        ]
         
         return {
-            "recommendations": recommendations,
+            "recommendations": recommendations_dict,
             "source": "ml_based",
             "ml_models_used": ["vector_similarity", "content_based"],
         }
@@ -469,16 +475,20 @@ async def get_user_recommendations(
             from app.services.recommendation_service import RecommendationService
             rec_service = RecommendationService(db)
             recommendations = await rec_service.get_trending_products(limit=limit)
+            recommendations_dict = [
+                ProductResponse.from_orm(product) for product in recommendations
+            ]
             return {
-                "recommendations": recommendations,
+                "recommendations": recommendations_dict,
                 "source": "fallback_trending",
                 "ml_models_used": [],
             }
-        except:
+        except Exception as fallback_error:
+            logger.error(f"Fallback error: {fallback_error}")
             raise HTTPException(status_code=500, detail=f"Recommendation error: {str(e)}")
 
 
-@router.get("/fbt-recommendations/{product_id}")
+@router.get("/fbt-recommendations/{product_id}", response_model=List[ProductResponse])
 async def get_fbt_recommendations(
     product_id: str,
     limit: int = Query(default=4, ge=1, le=20),
@@ -623,7 +633,7 @@ def get_product_categories(db: Session):
     return (
         db.query(ProductCategory)
         .filter(ProductCategory.is_active == True)
-        .order_by(ProductCategory.display_order, ProductCategory.name)
+        .order_by(ProductCategory.sort_order, ProductCategory.name)
         .all()
     )
 

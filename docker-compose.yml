@@ -1,7 +1,7 @@
 services:
   # PostgreSQL Database
   postgres:
-    image: pgvector/pgvector:pg15
+    image: pgvector/pgvector:pg18
     container_name: ecommerce-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ecommerce_user}
@@ -11,9 +11,8 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./services/backend/data/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./data/init.sql:/docker-entrypoint-initdb.d/init.sql
       # Note: Schema is created by SQLAlchemy on backend startup
-      # To seed data, run: docker-compose exec backend python /app/scripts/seed_data.py
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ecommerce_user}"]
       interval: 10s

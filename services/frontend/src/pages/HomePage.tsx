@@ -25,7 +25,6 @@ export const HomePage: React.FC = () => {
     useGetRecommendationsQuery(user?.id ?? "", {
       skip: !isAuthenticated || !user?.id,
     });
-  console.log(user);
   const { data: banners } = useGetUserBannersQuery(user?.id ?? "", {
     skip: !isAuthenticated || !user?.id || isLoading,
   });

@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
   AlertCircle,
+  BarChart3,
   Brain,
   CheckCircle,
   Clock,
@@ -536,13 +537,13 @@ const MetricCard = ({
       <div className="card-body p-6">
         <div className="flex items-start justify-between">
           <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <p className="text-base-content/60 text-sm font-medium">
+            <div className="flex items-center gap-1.5 mb-3">
+              <h3 className="text-base-content/60 text-sm font-medium">
                 {title}
-              </p>
+              </h3>
               {description && (
-                <div className="tooltip tooltip-top" data-tip={description}>
-                  <Info className="w-3 h-3 text-base-content/40" />
+                <div className="tooltip tooltip-right" data-tip={description}>
+                  <Info className="w-4 h-4 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
                 </div>
               )}
             </div>
@@ -1675,26 +1676,15 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
 
   return (
     <div className={`w-full ${className} relative`}>
-      <ChartExplanation
-        title="Revenue Overview"
-        description="Daily revenue trends from your actual sales data. Shows real revenue patterns with seasonal and weekly variations."
-      >
-        <div className="space-y-2 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-primary rounded"></div>
-            <span>Current Period Revenue</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-base-content/30 rounded"></div>
-            <span>Previous Period (12% lower)</span>
-          </div>
-        </div>
-      </ChartExplanation>
-
       {/* Real Revenue Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div className="stat bg-success/10 rounded-lg p-3 border border-success/20">
-          <div className="stat-title text-xs">Total Revenue</div>
+          <div className="stat-title text-xs flex items-center gap-1.5">
+            <span>Total Revenue</span>
+            <div className="tooltip tooltip-right" data-tip="Total revenue from all completed orders in the selected period">
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
+            </div>
+          </div>
           <div className="stat-value text-success text-lg">
             ${Math.round(dashboardData?.revenue?.total || 0).toLocaleString()}
           </div>
@@ -1704,7 +1694,12 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
         </div>
 
         <div className="stat bg-info/10 rounded-lg p-3 border border-info/20">
-          <div className="stat-title text-xs">Daily Average</div>
+          <div className="stat-title text-xs flex items-center gap-1.5">
+            <span>Daily Average</span>
+            <div className="tooltip tooltip-right" data-tip="Average revenue per day calculated over the selected period">
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
+            </div>
+          </div>
           <div className="stat-value text-info text-lg">
             $
             {Math.round(
@@ -1758,46 +1753,34 @@ const UserActivityChart = ({ className = "" }) => {
 
   return (
     <div className={`w-full ${className} relative`}>
-      <ChartExplanation
-        title="User Activity"
-        description="Daily user engagement based on your real user data. Shows actual patterns of new vs returning users."
-      >
-        <div className="space-y-2 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-success rounded"></div>
-            <span>New Users (Green)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-primary rounded"></div>
-            <span>Returning Users (Blue)</span>
-          </div>
-        </div>
-      </ChartExplanation>
-
       {/* Real User Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div className="stat bg-primary/10 rounded-lg p-3 border border-primary/20">
-          <div className="stat-title text-xs flex items-center gap-1">
-            <Users className="w-3 h-3" />
-            Active Users
+          <div className="stat-title text-xs flex items-center gap-1.5">
+            <span>Active Users</span>
+            <div className="tooltip tooltip-right" data-tip="Users who have logged in or made a purchase in the last 24 hours">
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
+            </div>
           </div>
           <div className="stat-value text-primary text-lg">
             {dashboardData?.users?.active?.toLocaleString() || 0}
           </div>
           <div className="stat-desc text-xs">
-            of {dashboardData?.users?.total?.toLocaleString() || 0} total
+            of {dashboardData?.users?.total?.toLocaleString() || 0} total users
           </div>
         </div>
 
         <div className="stat bg-success/10 rounded-lg p-3 border border-success/20">
-          <div className="stat-title text-xs flex items-center gap-1">
-            <Users className="w-3 h-3" />
-            New Users
+          <div className="stat-title text-xs flex items-center gap-1.5">
+            <span>New Users</span>
+            <div className="tooltip tooltip-right" data-tip="Number of new user registrations in the selected period">
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
+            </div>
           </div>
           <div className="stat-value text-success text-lg">
             {dashboardData?.users?.new?.toLocaleString() || 0}
           </div>
-          <div className="stat-desc text-xs">in current period</div>
+          <div className="stat-desc text-xs">registered in this period</div>
         </div>
       </div>
 

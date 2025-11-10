@@ -102,6 +102,9 @@ data_and_db/*.json
 services/backend/static/uploads/*
 !services/backend/static/uploads/.gitkeep
 
+# Database dumps
+data/database.sql
+
 # OS
 .DS_Store
 Thumbs.db

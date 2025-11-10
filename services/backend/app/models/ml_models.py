@@ -34,24 +34,24 @@ class MLModelConfig(Base):
     __tablename__ = "ml_model_configs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    model_name = Column(String(100), nullable=False, index=True)
+    name = Column(String(100), nullable=False, index=True, unique=True)
     model_type = Column(
-        String(50), nullable=False
+        String(100), nullable=False
     )  # 'als', 'lightgbm', 'kmeans', 'content_based'
+    description = Column(Text)
     parameters = Column(JSONB, nullable=False)
     is_active = Column(Boolean, default=False, index=True)
-    training_schedule = Column(
-        String(50), default="manual"
-    )  # 'daily', 'weekly', 'manual'
-    performance_threshold = Column(DECIMAL(5, 4), default=0.0)
-    last_trained_at = Column(DateTime(timezone=True))
-    next_training_at = Column(DateTime(timezone=True))
-    model_version = Column(String(50))
-    description = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    is_default = Column(Boolean, default=False)
+    accuracy_score = Column(DECIMAL(5, 4))
+    precision_score = Column(DECIMAL(5, 4))
+    recall_score = Column(DECIMAL(5, 4))
+    last_trained = Column(DateTime(timezone=False))
+    training_data_version = Column(String(500))
+    model_version = Column(String(500))
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+    updated_at = Column(DateTime(timezone=False), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     training_history = relationship(
@@ -61,7 +61,7 @@ class MLModelConfig(Base):
     updater = relationship("User", foreign_keys=[updated_by])
 
     def __repr__(self):
-        return f"<MLModelConfig(name='{self.model_name}', type='{self.model_type}', active={self.is_active})>"
+        return f"<MLModelConfig(name='{self.name}', type='{self.model_type}', active={self.is_active})>"
 
 
 class ModelTrainingHistory(Base):
@@ -131,29 +131,25 @@ class UserSegment(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), nullable=False, unique=True, index=True)
     description = Column(Text)
-    segment_rules = Column(
-        JSONB, nullable=False
-    )  # Complex rules for segment membership
     segment_type = Column(
-        String(50), default="custom"
+        String(50)
     )  # 'rfm', 'behavioral', 'custom', 'ml_cluster'
+    criteria = Column(
+        JSONB
+    )  # Complex rules for segment membership
     is_active = Column(Boolean, default=True, index=True)
     auto_update = Column(Boolean, default=True)  # Automatically update memberships
-    target_size = Column(Integer)  # Expected segment size
-    actual_size = Column(Integer, default=0)  # Current segment size
-    last_updated = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    update_frequency = Column(String(20))  # 'daily', 'weekly', 'monthly'
+    member_count = Column(Integer, default=0)  # Current segment size
+    last_updated = Column(DateTime(timezone=False))
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+    updated_at = Column(DateTime(timezone=False), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     memberships = relationship("UserSegmentMembership", back_populates="segment")
-    creator = relationship("User", foreign_keys=[created_by])
-    updater = relationship("User", foreign_keys=[updated_by])
 
     def __repr__(self):
-        return f"<UserSegment(name='{self.name}', type='{self.segment_type}', size={self.actual_size})>"
+        return f"<UserSegment(name='{self.name}', type='{self.segment_type}', size={self.member_count})>"
 
 
 class UserSegmentMembership(Base):

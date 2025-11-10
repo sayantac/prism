@@ -42,15 +42,15 @@ async def get_cart(
     total_items = 0
 
     query = text("""
-        SELECT ci.product_id, ci.quantity, ci.added_at, 
+        SELECT ci.product_id, ci.quantity, ci.created_at, 
                p.id, p.name, p.brand, p.price, p.description, p.images, 
                p.stock_quantity, p.in_stock, p.is_active
         FROM cart_items ci 
         JOIN products p ON ci.product_id = p.id 
-        WHERE ci.cart_id = :cart_id AND p.is_active = true
+        WHERE ci.user_id = :user_id AND p.is_active = true
     """)
 
-    result = db.execute(query, {"cart_id": str(cart.id)})
+    result = db.execute(query, {"user_id": str(current_user.id)})
 
     for row in result:
         product = (
@@ -67,7 +67,7 @@ async def get_cart(
 
             cart_items.append(
                 CartItemResponse(
-                    product=product, quantity=row.quantity, added_at=row.added_at
+                    product=product, quantity=row.quantity, added_at=row.created_at
                 )
             )
 

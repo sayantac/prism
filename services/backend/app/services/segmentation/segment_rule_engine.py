@@ -47,7 +47,7 @@ class SegmentRuleEngine(BaseSegmentationService):
     def apply_segment_rules(self, segment: UserSegment):
         """Apply segment rules to find matching users."""
         try:
-            rules = segment.segment_rules
+            rules = segment.criteria
             if not rules or "conditions" not in rules:
                 return
 

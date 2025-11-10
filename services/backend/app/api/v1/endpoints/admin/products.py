@@ -384,7 +384,7 @@ async def admin_list_categories(
 
     categories = (
         db.query(ProductCategory)
-        .order_by(ProductCategory.display_order, ProductCategory.name)
+        .order_by(ProductCategory.sort_order, ProductCategory.name)
         .all()
     )
 

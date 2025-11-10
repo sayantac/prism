@@ -21,8 +21,8 @@ class OrderItemBase(BaseSchema):
 class OrderBase(BaseSchema):
     """Base order schema."""
 
-    shipping_method: str = "standard"
-    notes: str | None = None
+    payment_method: str = "cash_on_delivery"
+    order_notes: str | None = None
 
 
 class OrderCreate(OrderBase):
@@ -35,14 +35,15 @@ class OrderUpdate(BaseSchema):
     """Order update schema."""
 
     status: str | None = None
-    tracking_number: str | None = None
-    notes: str | None = None
-    estimated_delivery: datetime | None = None
+    payment_status: str | None = None
+    payment_reference: str | None = None
+    order_notes: str | None = None
+    admin_notes: str | None = None
 
     @validator("status")
     def validate_status(cls, v):
         """Validate order status is valid."""
-        if v and v not in ["pending", "confirmed", "shipped", "delivered", "cancelled"]:
+        if v and v not in ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]:
             raise ValueError("Invalid order status")
         return v
 
@@ -64,16 +65,20 @@ class OrderResponse(BaseSchema):
     id: UUID
     order_number: str
     status: str
+    subtotal: Decimal
+    tax_amount: Decimal | None = None
+    shipping_amount: Decimal | None = None
+    discount_amount: Decimal | None = None
     total_amount: Decimal
-    currency: str
     payment_method: str
     payment_status: str
-    shipping_address: Dict[str, Any]
-    billing_address: Dict[str, Any]
-    shipping_method: str
-    tracking_number: str | None = None
-    estimated_delivery: datetime | None = None
-    notes: str | None = None
+    payment_reference: str | None = None
+    shipping_address: Dict[str, Any] | None = None
+    billing_address: Dict[str, Any] | None = None
+    recommendation_source: str | None = None
+    recommendation_session_id: str | None = None
+    order_notes: str | None = None
+    admin_notes: str | None = None
     items: List[OrderItemResponse] = []
     created_at: datetime
     updated_at: datetime | None = None

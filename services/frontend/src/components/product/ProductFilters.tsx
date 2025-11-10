@@ -31,7 +31,7 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
 
   const [filters, setFilters] = useState<FilterState>({
     categories: [],
-    priceRange: [0, 1200],
+    priceRange: [0, 4200],
     rating: 0,
     inStock: null,
     brands: [],
@@ -65,7 +65,7 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
   const clearAllFilters = () => {
     setFilters({
       categories: [],
-      priceRange: [0, 1200],
+      priceRange: [0, 4200],
       rating: 0,
       inStock: null,
       brands: [],
@@ -75,7 +75,7 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
   const hasActiveFilters =
     filters.categories.length > 0 ||
     filters.priceRange[0] > 0 ||
-    filters.priceRange[1] < 1200 ||
+    filters.priceRange[1] < 4200 ||
     filters.rating > 0 ||
     filters.inStock ||
     filters.brands.length > 0;
@@ -209,7 +209,7 @@ export const ProductFilters: React.FC<ProductFiltersProps> = ({
                   <input
                     type="range"
                     min="0"
-                    max="1200"
+                    max="4200"
                     value={filters.priceRange[1]}
                     onChange={(e) =>
                       updateFilters("priceRange", [

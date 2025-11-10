@@ -26,14 +26,7 @@ user_roles = Table(
     "user_roles",
     Base.metadata,
     Column("user_id", UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True),
-    Column("role_id", Integer, ForeignKey("roles.id"), primary_key=True),
-)
-
-role_permissions = Table(
-    "role_permissions",
-    Base.metadata,
-    Column("role_id", Integer, ForeignKey("roles.id"), primary_key=True),
-    Column("permission_id", Integer, ForeignKey("permissions.id"), primary_key=True),
+    Column("role_id", UUID(as_uuid=True), ForeignKey("roles.id"), primary_key=True),
 )
 
 
@@ -46,19 +39,24 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     phone = Column(String)
-    full_name = Column(String)
+    first_name = Column(String(100))
+    last_name = Column(String(100))
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
+    is_verified = Column(Boolean, default=False)
     is_superuser = Column(Boolean, default=False)
-    locale = Column(String, default="en")
-    avatar_url = Column(String)
-    interests = Column(ARRAY(String))
+    date_of_birth = Column(DateTime(timezone=False))
+    gender = Column(String(10))
+    interests = Column(JSON)
     preferences = Column(JSON)
     address = Column(JSON)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    last_active = Column(DateTime(timezone=True))
-    viewed_products = Column(ARRAY(UUID(as_uuid=True)))
+    last_login = Column(DateTime(timezone=False))
+    login_count = Column(Integer, default=0)
+    created_by = Column(UUID(as_uuid=True))
+    updated_by = Column(UUID(as_uuid=True))
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+    updated_at = Column(DateTime(timezone=False), server_default=func.now(), onupdate=func.now())
+    viewed_products = Column(JSON, default=[])
 
     # Relationships
     roles = relationship("Role", secondary=user_roles, back_populates="users")
@@ -75,31 +73,16 @@ class Role(Base):
     
     __tablename__ = "roles"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(50), unique=True, nullable=False)
     description = Column(Text)
+    permissions = Column(JSON)
+    is_active = Column(Boolean, default=True)
+    created_by = Column(UUID(as_uuid=True))
+    updated_by = Column(UUID(as_uuid=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     users = relationship("User", secondary=user_roles, back_populates="roles")
-    permissions = relationship(
-        "Permission", secondary=role_permissions, back_populates="roles"
-    )
 
-
-class Permission(Base):
-    """Permission model for granular access control."""
-    
-    __tablename__ = "permissions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, nullable=False)
-    description = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    roles = relationship(
-        "Role", secondary=role_permissions, back_populates="permissions"
-    )

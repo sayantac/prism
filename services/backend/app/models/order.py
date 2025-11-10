@@ -25,32 +25,42 @@ class Order(Base):
     __tablename__ = "orders"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    order_number = Column(String, unique=True, index=True)
-    status = Column(String, default="pending")
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    order_number = Column(String(50), unique=True, index=True, nullable=False)
+    
+    # Amount breakdown
+    subtotal = Column(DECIMAL(10, 2), nullable=False)
+    tax_amount = Column(DECIMAL(10, 2), default=0)
+    shipping_amount = Column(DECIMAL(10, 2), default=0)
+    discount_amount = Column(DECIMAL(10, 2), default=0)
     total_amount = Column(DECIMAL(10, 2), nullable=False)
-    currency = Column(String, default="USD")
+    
+    # Status
+    status = Column(String(20), default="pending")
+    payment_status = Column(String(20), default="pending")
 
-    # Shipping information
-    shipping_address = Column(JSON)
+    # Address information
     billing_address = Column(JSON)
-    shipping_method = Column(String, default="standard")
-    estimated_delivery = Column(DateTime(timezone=True))
+    shipping_address = Column(JSON)
 
     # Payment information
-    payment_method = Column(String, default="cod")
-    payment_status = Column(String, default="pending")
+    payment_method = Column(String(50), default="cash_on_delivery")
+    payment_reference = Column(String(100))
+    
+    # Recommendation tracking
+    recommendation_source = Column(String(50))
+    recommendation_session_id = Column(String(100))
 
-    # Tracking and notes
-    tracking_number = Column(String)
-    notes = Column(Text)
+    # Notes
+    order_notes = Column(Text)
+    admin_notes = Column(Text)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+    updated_at = Column(DateTime(timezone=False), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     user = relationship("User", back_populates="orders")
-    items = relationship("OrderItem", back_populates="order")
+    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
 
 
 class OrderItem(Base):

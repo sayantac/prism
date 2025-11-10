@@ -1,4 +1,6 @@
 import { motion } from "framer-motion";
+import { ArrowLeft } from "lucide-react";
+import { Link } from "react-router-dom";
 import { RegisterForm } from "../../components/auth/RegisterForm";
 
 export const RegisterPage: React.FC = () => {
@@ -11,11 +13,11 @@ export const RegisterPage: React.FC = () => {
       >
         <div className="text-center">
           <div className="flex justify-center mb-6">
-            <div className="avatar placeholder">
-              <div className="bg-primary text-primary-content rounded-lg w-12">
-                <span className="text-xl font-bold">S</span>
-              </div>
-            </div>
+            <img 
+              src="/logo.png" 
+              alt="PRISM Logo" 
+              className="h-16 w-auto"
+            />
           </div>
         </div>
 
@@ -29,6 +31,16 @@ export const RegisterPage: React.FC = () => {
             <RegisterForm />
           </div>
         </motion.div>
+
+        <div className="text-center mt-4">
+          <Link 
+            to="/" 
+            className="inline-flex items-center gap-2 text-sm text-base-content/70 hover:text-base-content transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Home
+          </Link>
+        </div>
       </motion.div>
     </div>
   );

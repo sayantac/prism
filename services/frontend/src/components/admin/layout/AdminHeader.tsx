@@ -13,6 +13,11 @@ export const AdminHeader: React.FC = () => {
   const { theme } = useSelector((state: RootState) => state.ui);
   const dispatch = useDispatch();
 
+  console.log("AdminHeader user object:", user);
+  console.log("User first_name:", user?.first_name);
+  console.log("User last_name:", user?.last_name);
+  console.log("User email:", user?.email);
+
   const handleLogout = () => {
     dispatch(logout());
   };
@@ -70,9 +75,24 @@ export const AdminHeader: React.FC = () => {
               >
                 <div className="w-8 rounded-full">
                   <div className="avatar placeholder">
-                    <div className="bg-neutral text-neutral-content rounded-full w-8">
-                      <span className="text-sm">
-                        {user?.first_name?.[0] || user?.email?.[0] || "A"}
+                    <div className="bg-neutral text-neutral-content rounded-full w-8 flex items-center justify-center">
+                      <span className="text-xs font-semibold" style={{ textTransform: 'uppercase' }}>
+                        {(() => {
+                          const firstName = user?.first_name || "";
+                          const lastName = user?.last_name || "";
+                          const email = user?.email || "";
+                          
+                          if (firstName && lastName) {
+                            return `${firstName[0]}${lastName[0]}`.toUpperCase();
+                          }
+                          if (firstName) {
+                            return firstName[0].toUpperCase();
+                          }
+                          if (email) {
+                            return email[0].toUpperCase();
+                          }
+                          return "AD";
+                        })()}
                       </span>
                     </div>
                   </div>

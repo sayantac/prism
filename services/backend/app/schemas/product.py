@@ -14,7 +14,7 @@ class CategoryBase(BaseSchema):
     name: str
     description: str | None = None
     parent_id: UUID | None = None
-    display_order: int = 0
+    sort_order: int = 0
 
 
 class CategoryCreate(CategoryBase):
@@ -30,7 +30,7 @@ class CategoryUpdate(BaseSchema):
     description: str | None = None
     parent_id: UUID | None = None
     is_active: bool | None = None
-    display_order: int | None = None
+    sort_order: int | None = None
 
 
 class CategoryResponse(CategoryBase):
@@ -94,9 +94,9 @@ class ProductBase(BaseSchema):
     price: Decimal
     code: str | None = None
     description: str | None = None
-    specification: str | None = None
-    technical_details: str | None = None
-    product_dimensions: str | None = None
+    specification: Dict[str, Any] | None = None
+    technical_details: Dict[str, Any] | None = None
+    product_dimensions: Dict[str, Any] | None = None
     images: List[str] | None = []
     product_url: str | None = None
     is_amazon_seller: bool = False
@@ -105,7 +105,7 @@ class ProductBase(BaseSchema):
     custom_fields: Dict[str, Any] | None = {}
     meta_title: str | None = None
     meta_description: str | None = None
-    tags: List[str] | None = []
+    tags: Any | None = None
 
 
 class ProductCreate(ProductBase):
@@ -123,9 +123,9 @@ class ProductUpdate(BaseSchema):
     price: Decimal | None = None
     code: str | None = None
     description: str | None = None
-    specification: str | None = None
-    technical_details: str | None = None
-    product_dimensions: str | None = None
+    specification: Dict[str, Any] | None = None
+    technical_details: Dict[str, Any] | None = None
+    product_dimensions: Dict[str, Any] | None = None
     images: List[str] | None = None
     product_url: str | None = None
     is_amazon_seller: bool | None = None
@@ -135,7 +135,7 @@ class ProductUpdate(BaseSchema):
     custom_fields: Dict[str, Any] | None = None
     meta_title: str | None = None
     meta_description: str | None = None
-    tags: List[str] | None = None
+    tags: Any | None = None
     config: ProductConfigUpdate | None = None
 
 

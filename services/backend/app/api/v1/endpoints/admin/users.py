@@ -12,7 +12,7 @@ from app.api.deps import (
 )
 from app.core.permissions import require_permission
 from app.core.security import get_password_hash
-from app.models import Permission, Role, User
+from app.models import Role, User
 from app.schemas import (
     MessageResponse,
     PaginatedResponse,
@@ -266,7 +266,6 @@ async def admin_list_roles(
 
     roles = (
         db.query(Role)
-        .options(selectinload(Role.permissions))
         .options(selectinload(Role.users))
         .all()
     )
@@ -277,10 +276,7 @@ async def admin_list_roles(
             "name": role.name,
             "description": role.description,
             "created_at": role.created_at,
-            "permissions": [
-                {"id": perm.id, "name": perm.name, "description": perm.description}
-                for perm in role.permissions
-            ],
+            "permissions": role.permissions or [],
             "user_count": len(role.users),
         }
         for role in roles
@@ -302,20 +298,14 @@ async def admin_create_role(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Role name already exists"
         )
 
-    # Create role
-    role = Role(name=role_data.name, description=role_data.description)
+    # Create role with permissions as JSON
+    role = Role(
+        name=role_data.name,
+        description=role_data.description,
+        permissions=role_data.permissions if hasattr(role_data, 'permissions') else [],
+        created_by=current_user.id
+    )
     db.add(role)
-    db.flush()  # Get the role ID
-
-    # Add permissions if provided
-    if role_data.permission_ids:
-        permissions = (
-            db.query(Permission)
-            .filter(Permission.id.in_(role_data.permission_ids))
-            .all()
-        )
-        role.permissions = permissions
-
     db.commit()
     db.refresh(role)
 
@@ -327,16 +317,25 @@ async def admin_list_permissions(
     current_user: User = Depends(require_permission("manage_users")),
     db: Session = Depends(get_db),
 ):
-    """List all permissions"""
+    """List all available permissions"""
 
-    permissions = db.query(Permission).all()
+    # Return a predefined list of permissions since they're not stored in a separate table
+    permissions = [
+        {"id": "manage_users", "name": "Manage Users", "description": "Create, edit, and delete users"},
+        {"id": "view_users", "name": "View Users", "description": "View user information"},
+        {"id": "manage_products", "name": "Manage Products", "description": "Create, edit, and delete products"},
+        {"id": "view_products", "name": "View Products", "description": "View product information"},
+        {"id": "manage_orders", "name": "Manage Orders", "description": "View and manage orders"},
+        {"id": "view_analytics", "name": "View Analytics", "description": "Access analytics dashboards"},
+        {"id": "manage_settings", "name": "Manage Settings", "description": "Modify system settings"},
+    ]
 
     return [
         {
-            "id": perm.id,
-            "name": perm.name,
-            "description": perm.description,
-            "created_at": perm.created_at,
+            "id": perm["id"],
+            "name": perm["name"],
+            "description": perm["description"],
+            "created_at": None,
         }
         for perm in permissions
     ]

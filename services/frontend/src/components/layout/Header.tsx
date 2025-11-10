@@ -145,9 +145,24 @@ export const Header: React.FC = () => {
                   >
                     <div className="w-8 rounded-full">
                       <div className="avatar placeholder">
-                        <div className="bg-neutral text-neutral-content rounded-full w-8">
-                          <span className="text-sm">
-                            {user?.first_name?.[0] || user?.email?.[0] || "U"}
+                        <div className="bg-neutral text-neutral-content rounded-full w-8 flex items-center justify-center">
+                          <span className="text-xs font-semibold" style={{ textTransform: 'uppercase' }}>
+                            {(() => {
+                              const firstName = user?.first_name || "";
+                              const lastName = user?.last_name || "";
+                              const email = user?.email || "";
+                              
+                              if (firstName && lastName) {
+                                return `${firstName[0]}${lastName[0]}`.toUpperCase();
+                              }
+                              if (firstName) {
+                                return firstName[0].toUpperCase();
+                              }
+                              if (email) {
+                                return email[0].toUpperCase();
+                              }
+                              return "U";
+                            })()}
                           </span>
                         </div>
                       </div>

@@ -55,7 +55,6 @@ class AuditService:
             user_agent=user_agent,
             old_values=json.dumps(old_values) if old_values else None,
             new_values=json.dumps(new_values) if new_values else None,
-            timestamp=datetime.utcnow(),
         )
 
         self.db.add(audit_log)

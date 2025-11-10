@@ -27,7 +27,7 @@ export const ProductsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<FilterState>({
     categories: [],
-    priceRange: [0, 1200],
+    priceRange: [0, 4200],
     brands: [],
     rating: 0,
     inStock: null,
@@ -44,7 +44,7 @@ export const ProductsPage: React.FC = () => {
       category: filters.categories[0],
     }),
     ...(filters.priceRange[0] > 0 && { min_price: filters.priceRange[0] }),
-    ...(filters.priceRange[1] < 1200 && { max_price: filters.priceRange[1] }),
+    ...(filters.priceRange[1] < 4200 && { max_price: filters.priceRange[1] }),
     ...(filters.brands.length > 0 && { brand: filters.brands.join(",") }),
     ...(filters.rating > 0 && { min_rating: filters.rating }),
     ...(filters.inStock !== null && { in_stock: filters.inStock }),
@@ -86,7 +86,7 @@ export const ProductsPage: React.FC = () => {
   const handleClearFilters = () => {
     setFilters({
       categories: [],
-      priceRange: [0, 1200],
+      priceRange: [0, 4200],
       brands: [],
       rating: 0,
       inStock: null,

@@ -34,18 +34,18 @@ class ModelConfigManager(BaseRecommendationService):
     ) -> Dict[str, Any]:
         """Create a new ML model configuration."""
         try:
-            required_fields = ["model_name", "model_type", "parameters"]
+            required_fields = ["name", "model_type", "parameters"]
             for field in required_fields:
                 if field not in config_data:
                     raise ValueError(f"Missing required field: {field}")
 
             new_config = MLModelConfig(
                 id=uuid.uuid4(),
-                model_name=config_data["model_name"],
+                name=config_data["name"],
                 model_type=config_data["model_type"],
                 parameters=config_data["parameters"],
-                training_schedule=config_data.get("training_schedule", "manual"),
-                performance_threshold=config_data.get("performance_threshold", 0.0),
+                is_active=config_data.get("is_active", False),
+                is_default=config_data.get("is_default", False),
                 description=config_data.get("description", ""),
                 created_by=uuid.UUID(user_id),
             )
@@ -54,7 +54,7 @@ class ModelConfigManager(BaseRecommendationService):
             self.db.commit()
             self.db.refresh(new_config)
 
-            self.logger.info(f"Created model config: {new_config.model_name}")
+            self.logger.info(f"Created model config: {new_config.name}")
             return self._serialize_model_config(new_config)
 
         except Exception as e:
@@ -76,10 +76,11 @@ class ModelConfigManager(BaseRecommendationService):
                 raise ValueError(f"Model config not found: {config_id}")
 
             updateable_fields = [
-                "model_name",
+                "name",
+                "model_type",
                 "parameters",
-                "training_schedule",
-                "performance_threshold",
+                "is_active",
+                "is_default",
                 "description",
             ]
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.core.config import get_settings
 from app.database import SessionLocal
-from app.models import Permission, Role, User
+from app.models import Role, User
 
 settings = get_settings()
 security = HTTPBearer(auto_error=False)
@@ -44,11 +44,7 @@ async def get_current_user(
 
         user = (
             db.query(User)
-            .options(
-                selectinload(User.roles)
-                .selectinload(Role.permissions)
-                .options(load_only(Permission.name, Permission.description))
-            )
+            .options(selectinload(User.roles))
             .filter(User.id == user_id)
             .first()
         )

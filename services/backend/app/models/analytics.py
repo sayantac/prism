@@ -3,6 +3,7 @@ Analytics and logging models for tracking user behavior and system events.
 """
 import uuid
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -36,9 +37,10 @@ class SearchAnalytics(Base):
     click_position = Column(Integer)
     response_time_ms = Column(Integer)
     filters_applied = Column(JSON)
+    sort_option = Column(String(50))
     user_agent = Column(String)
     ip_address = Column(String)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
 
     # Relationships
     user = relationship("User", back_populates="search_analytics")
@@ -51,19 +53,18 @@ class AuditLog(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    action = Column(String, nullable=True)
-    entity_type = Column(String, nullable=True)
-    entity_id = Column(String)
-    resource_type = Column(String(100), nullable=True, index=True)
-    resource_id = Column(String(200), nullable=True, index=True)
-    details = Column(Text, nullable=True)
+    action = Column(String(50), nullable=False)
+    resource_type = Column(String(50), nullable=True)
+    resource_id = Column(String(100), nullable=True)
     old_values = Column(JSON)
     new_values = Column(JSON)
-    ip_address = Column(String)
-    user_agent = Column(String)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
-    session_id = Column(String(100), nullable=True)
-    request_id = Column(String(100), nullable=True)
+    details = Column(JSON)
+    ip_address = Column(String(45))
+    user_agent = Column(String(500))
+    endpoint = Column(String(200))
+    success = Column(Boolean, default=True)
+    error_message = Column(Text)
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
 
 
 class SystemLog(Base):

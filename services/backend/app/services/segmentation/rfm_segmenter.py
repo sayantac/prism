@@ -30,7 +30,7 @@ class RFMSegmenter(BaseSegmentationService):
                     "name": "Champions",
                     "description": "Bought recently, buy often and spend the most",
                     "segment_type": "rfm",
-                    "segment_rules": {
+                    "criteria": {
                         "conditions": [
                             {"field": "rfm_recency_score", "operator": ">=", "value": 4},
                             {"field": "rfm_frequency_score", "operator": ">=", "value": 4},
@@ -43,7 +43,7 @@ class RFMSegmenter(BaseSegmentationService):
                     "name": "Loyal Customers",
                     "description": "Spend good money often, responsive to promotions",
                     "segment_type": "rfm",
-                    "segment_rules": {
+                    "criteria": {
                         "conditions": [
                             {"field": "rfm_recency_score", "operator": ">=", "value": 2},
                             {"field": "rfm_frequency_score", "operator": ">=", "value": 3},
@@ -56,7 +56,7 @@ class RFMSegmenter(BaseSegmentationService):
                     "name": "Potential Loyalists",
                     "description": "Recent customers with good spending",
                     "segment_type": "rfm",
-                    "segment_rules": {
+                    "criteria": {
                         "conditions": [
                             {"field": "rfm_recency_score", "operator": ">=", "value": 3},
                             {"field": "rfm_frequency_score", "operator": ">=", "value": 2},
@@ -69,7 +69,7 @@ class RFMSegmenter(BaseSegmentationService):
                     "name": "New Customers",
                     "description": "Bought recently but not often",
                     "segment_type": "rfm",
-                    "segment_rules": {
+                    "criteria": {
                         "conditions": [
                             {"field": "rfm_recency_score", "operator": ">=", "value": 4},
                             {"field": "rfm_frequency_score", "operator": "<=", "value": 2},
@@ -81,7 +81,7 @@ class RFMSegmenter(BaseSegmentationService):
                     "name": "At Risk",
                     "description": "Spent big and purchased often, but long time ago",
                     "segment_type": "rfm",
-                    "segment_rules": {
+                    "criteria": {
                         "conditions": [
                             {"field": "rfm_recency_score", "operator": "<=", "value": 2},
                             {"field": "rfm_frequency_score", "operator": ">=", "value": 3},
@@ -94,7 +94,7 @@ class RFMSegmenter(BaseSegmentationService):
                     "name": "Cannot Lose Them",
                     "description": "Made biggest purchases often, but long ago",
                     "segment_type": "rfm",
-                    "segment_rules": {
+                    "criteria": {
                         "conditions": [
                             {"field": "rfm_recency_score", "operator": "<=", "value": 2},
                             {"field": "rfm_frequency_score", "operator": ">=", "value": 4},
@@ -107,7 +107,7 @@ class RFMSegmenter(BaseSegmentationService):
                     "name": "Hibernating",
                     "description": "Low spenders, low orders, inactive",
                     "segment_type": "rfm",
-                    "segment_rules": {
+                    "criteria": {
                         "conditions": [
                             {"field": "rfm_recency_score", "operator": "<=", "value": 2},
                             {"field": "rfm_frequency_score", "operator": "<=", "value": 2},
@@ -120,7 +120,7 @@ class RFMSegmenter(BaseSegmentationService):
                     "name": "Lost",
                     "description": "Lowest recency, frequency and monetary scores",
                     "segment_type": "rfm",
-                    "segment_rules": {
+                    "criteria": {
                         "conditions": [
                             {"field": "rfm_recency_score", "operator": "<=", "value": 1},
                             {"field": "rfm_frequency_score", "operator": "<=", "value": 1},

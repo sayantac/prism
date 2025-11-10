@@ -253,7 +253,7 @@ class AdminDashboardService:
         """Get active users count for a specific period"""
         return (
             self.db.query(func.count(func.distinct(User.id)))
-            .filter(User.last_active >= start_date)
+            .filter(User.last_login >= start_date)
             .scalar()
             or 0
         )
@@ -262,7 +262,7 @@ class AdminDashboardService:
         """Get search count for a specific period"""
         return (
             self.db.query(func.count(SearchAnalytics.id))
-            .filter(SearchAnalytics.timestamp >= start_date)
+            .filter(SearchAnalytics.created_at >= start_date)
             .scalar()
             or 0
         )

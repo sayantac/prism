@@ -18,7 +18,6 @@ from app.middleware import (
 )
 from app.models import Base
 from app.services.system_health_service import SystemMonitor
-from app.utils.init_db import init_db
 from app.utils.logging_config import setup_logging
 
 settings = get_settings()
@@ -39,7 +38,7 @@ async def lifespan(app: FastAPI):
 
     db = SessionLocal()
     try:
-        init_db(db)
+        # init_db(db)  # Commented out - database is restored from dump
         await _init_default_admin_settings(db)
     finally:
         db.close()

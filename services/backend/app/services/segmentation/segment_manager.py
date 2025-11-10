@@ -30,19 +30,18 @@ class SegmentManager(BaseSegmentationService):
         """Create a new user segment."""
         try:
             # Validate segment rules
-            self.rule_engine.validate_segment_rules(segment_data.get("segment_rules", {}))
+            self.rule_engine.validate_segment_rules(segment_data.get("criteria", {}))
 
             # Create segment
             segment = UserSegment(
                 id=uuid.uuid4(),
                 name=segment_data["name"],
                 description=segment_data.get("description", ""),
-                segment_rules=segment_data["segment_rules"],
+                criteria=segment_data["criteria"],
                 segment_type=segment_data.get("segment_type", "custom"),
                 is_active=segment_data.get("is_active", True),
                 auto_update=segment_data.get("auto_update", True),
-                target_size=segment_data.get("target_size"),
-                created_by=uuid.UUID(user_id),
+                update_frequency=segment_data.get("update_frequency"),
             )
 
             self.db.add(segment)
@@ -78,18 +77,18 @@ class SegmentManager(BaseSegmentationService):
             updateable_fields = [
                 "name",
                 "description",
-                "segment_rules",
+                "criteria",
                 "is_active",
                 "auto_update",
-                "target_size",
+                "update_frequency",
             ]
 
             rules_changed = False
             for field in updateable_fields:
                 if field in segment_data:
                     if (
-                        field == "segment_rules"
-                        and segment_data[field] != segment.segment_rules
+                        field == "criteria"
+                        and segment_data[field] != segment.criteria
                     ):
                         self.rule_engine.validate_segment_rules(segment_data[field])
                         rules_changed = True

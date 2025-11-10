@@ -222,7 +222,7 @@ class UserBehaviorService:
             search_count = (
                 self.db.query(SearchAnalytics)
                 .filter(SearchAnalytics.user_id == user_id)
-                .filter(SearchAnalytics.timestamp >= since_date)
+                .filter(SearchAnalytics.created_at >= since_date)
                 .count()
             )
 

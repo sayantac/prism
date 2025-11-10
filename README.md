@@ -33,7 +33,25 @@ recommendationsystem/
 - 8GB RAM minimum
 - 10GB free disk space
 
-### 1. Setup and Run
+### 1. Restore Database
+
+Before starting the application for the first time, restore the database from the dump file:
+
+```bash
+# Make the restore script executable
+chmod +x scripts/restore_database.sh
+
+# Run the restore script
+./scripts/restore_database.sh
+```
+
+This will:
+- Start the PostgreSQL container
+- Drop and recreate the database
+- Install required extensions (uuid-ossp, vector)
+- Restore all data from the dump file
+
+### 2. Setup and Run
 
 ```bash
 # Clone the repository
@@ -48,16 +66,15 @@ This will:
 - Create `.env` from `.env.example`
 - Build Docker images
 - Start all services (postgres, backend, frontend)
-- Database initializes automatically ✨
 
-### 2. Access the Application
+### 3. Access the Application
 
 - **Frontend**: http://localhost:5173
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
 - **PgAdmin** (optional): `make pgadmin` then http://localhost:5050
 
-### 3. Login
+### 4. Login
 
 Default admin credentials (change in .env):
 - **Email**: admin@example.com
@@ -65,7 +82,7 @@ Default admin credentials (change in .env):
 
 That's it! The system is now running. 🎉
 
-> **Database Note**: Tables, roles, permissions, and admin user are created automatically on first startup. Data persists in Docker volume between restarts.
+> **Database Note**: The database has been restored from the dump file and is ready to use. Data persists in Docker volume between restarts.
 
 ## 📋 Common Commands
 

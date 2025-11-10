@@ -19,7 +19,7 @@ Models are organized by domain:
 from app.models.base import Base
 
 # Import all domain models
-from app.models.user import User, Role, Permission, user_roles, role_permissions
+from app.models.user import User, Role, user_roles
 from app.models.product import (
     Product,
     ProductCategory,
@@ -44,6 +44,7 @@ from app.models.ml_models import (
     RecommendationMetrics,
     RecommendationConversion,
 )
+from app.models.marketing import AdBanner, PromotionalBanner
 
 # Export all models
 __all__ = [
@@ -52,9 +53,7 @@ __all__ = [
     # User models
     "User",
     "Role",
-    "Permission",
     "user_roles",
-    "role_permissions",
     # Product models
     "Product",
     "ProductCategory",
@@ -86,4 +85,7 @@ __all__ = [
     "UserSegmentMembership",
     "RecommendationMetrics",
     "RecommendationConversion",
+    # Marketing models
+    "AdBanner",
+    "PromotionalBanner",
 ]
