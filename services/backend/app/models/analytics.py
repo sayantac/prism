@@ -45,6 +45,29 @@ class SearchAnalytics(Base):
     # Relationships
     user = relationship("User", back_populates="search_analytics")
 
+class UserBehavior(Base):
+    __tablename__ = "user_behavior"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    session_id = Column(String(100), index=True)
+
+    # Behavior data
+    event_type = Column(String(50), nullable=False)  # view, click, add_to_cart, etc.
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
+    category_id = Column(UUID(as_uuid=True), ForeignKey("product_categories.id"))
+
+    # Context
+    page_url = Column(String(500))
+    referrer = Column(String(500))
+    device_type = Column(String(20))
+
+    # Additional data
+    event_data = Column(JSON)
+
+    # Relationships
+    user = relationship("User")
+
 
 class AuditLog(Base):
     """Audit log for tracking all system changes."""

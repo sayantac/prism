@@ -365,7 +365,7 @@ Key variables (see `.env.example` for complete list):
 
 ```bash
 # Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/ecommerce
+DATABASE_URL=postgresql://user:pass@localhost:5432/recom_sys
 
 # Security
 SECRET_KEY=your-super-secret-key-change-this-in-production

@@ -104,6 +104,7 @@ class Product(Base):
     wishlisted_by = relationship(
         "User", secondary=wishlist_items, back_populates="wishlist"
     )
+    recommendations = relationship("RecommendationResult", back_populates="product")
 
     __table_args__ = (
         Index(

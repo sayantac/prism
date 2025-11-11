@@ -7,7 +7,8 @@ from app.core.config import get_settings
 settings = get_settings()
 
 engine = create_engine(
-    str(settings.DATABASE_URL),
+    "postgresql://tanmay:123@localhost:5432/recom_sys",
+    
     pool_size=20,  # Number of connections to maintain in pool
     max_overflow=30,  # Maximum overflow connections
     pool_pre_ping=True,  # Validate connections before use

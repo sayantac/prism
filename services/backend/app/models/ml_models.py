@@ -11,6 +11,7 @@ import uuid
 
 from sqlalchemy import (
     DECIMAL,
+    JSON,
     UUID,
     Boolean,
     Column,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
 )
@@ -26,6 +28,33 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.models.base import Base
+
+
+class RecommendationResult(Base):
+    __tablename__ = "recommendation_results"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
+    session_id = Column(String(100), index=True)
+
+    # Recommendation data
+    algorithm = Column(String(50), nullable=False)  # collaborative, content_based, etc.
+    score = Column(Numeric(5, 4), nullable=False)
+    rank = Column(Integer, nullable=False)
+
+    # Context
+    recommendation_type = Column(String(50))  # homepage, product_page, cart, etc.
+    context_data = Column(JSON)
+
+    # Tracking
+    was_clicked = Column(Boolean, default=False)
+    was_purchased = Column(Boolean, default=False)
+    click_timestamp = Column(DateTime)
+
+    # Relationships
+    product = relationship("Product", back_populates="recommendations")
 
 
 class MLModelConfig(Base):

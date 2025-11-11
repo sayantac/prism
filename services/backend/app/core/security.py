@@ -51,3 +51,6 @@ def verify_token(token: str) -> Optional[str]:
         return payload.get("sub")
     except JWTError:
         return None
+
+print(get_password_hash('password1234'))
+# print(get_password_hash('admin123'))
