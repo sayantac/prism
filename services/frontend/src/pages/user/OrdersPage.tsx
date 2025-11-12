@@ -86,9 +86,6 @@ export const OrdersPage: React.FC = () => {
     skip: !selectedOrderId,
   });
 
-  const viewdetailsOrder = (id) => {
-    setSelectedOrderId(id);
-  };
   useEffect(() => {
     if (id && ordersData) {
       setSelectedOrderId(id);

@@ -3,7 +3,7 @@
  * Catches JavaScript errors anywhere in the component tree and displays a fallback UI
  */
 
-import { Component, ErrorInfo, ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 
 interface Props {

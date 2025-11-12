@@ -28,7 +28,7 @@ interface Address {
 
 interface PaymentMethod {
   id: string;
-  type: "cash_on_delivery" | "credit_card" | "debit_card";
+  type: "cash_on_delivery" | "credit_card" | "debit_card" | "bank_transfer";
   name: string;
   description: string;
   icon: React.ReactNode;
@@ -201,7 +201,7 @@ export const CheckoutPage: React.FC = () => {
           {/* Step 1: Address */}
           {currentStep === 0 && (
             <AddressForm
-              selectedAddress={selectedAddress}
+              selectedAddress={selectedAddress ?? undefined}
               onAddressSelect={handleAddressSelect}
               savedAddresses={savedAddresses}
             />
@@ -210,7 +210,7 @@ export const CheckoutPage: React.FC = () => {
           {/* Step 2: Payment */}
           {currentStep === 1 && (
             <PaymentForm
-              selectedPayment={selectedPayment}
+              selectedPayment={selectedPayment ?? undefined}
               onPaymentSelect={handlePaymentSelect}
             />
           )}
