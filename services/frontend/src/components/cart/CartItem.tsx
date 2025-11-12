@@ -10,18 +10,15 @@ import { Button } from "../ui/Button";
 import { PriceDisplay } from "../common/PriceDisplay";
 
 interface CartItemData {
-  id: string;
-  product_id: string;
-  quantity: number;
-  unit_price: number;
-  total_price: number;
-  product?: {
+  product: {
     id: string;
     name: string;
     images: string[];
     in_stock: boolean;
     price: number;
   };
+  quantity: number;
+  added_at: string;
 }
 
 interface CartItemProps {
@@ -49,7 +46,7 @@ export const CartItem: React.FC<CartItemProps> = ({
 
     try {
       await updateCartItem({
-        itemId: item.id,
+        itemId: item.product.id,
         quantity: newQuantity,
       }).unwrap();
     } catch (error) {
@@ -62,7 +59,7 @@ export const CartItem: React.FC<CartItemProps> = ({
 
   const handleRemove = async () => {
     try {
-      await removeFromCart(item.id).unwrap();
+      await removeFromCart(item.product.id).unwrap();
       toast.success("Item removed from cart");
     } catch (error) {
       toast.error("Failed to remove item");
@@ -79,7 +76,7 @@ export const CartItem: React.FC<CartItemProps> = ({
       {/* Product Image */}
       <div className="flex-shrink-0">
         {showProductLink ? (
-          <Link to={`/products/${item.product_id}`}>
+          <Link to={`/products/${item.product.id}`}>
             <img
               src={productImage}
               alt={productName}
@@ -101,7 +98,7 @@ export const CartItem: React.FC<CartItemProps> = ({
           <div className="flex-1 min-w-0">
             {showProductLink ? (
               <Link
-                to={`/products/${item.product_id}`}
+                to={`/products/${item.product.id}`}
                 className="font-medium text-base-content hover:text-primary line-clamp-2"
               >
                 {productName}
@@ -112,13 +109,9 @@ export const CartItem: React.FC<CartItemProps> = ({
               </h3>
             )}
 
-            <div className="flex items-center justify-between mt-2">
-              <PriceDisplay price={item.unit_price} size="sm" />
-
-              {!item.product?.in_stock && (
-                <span className="text-xs text-warning">Out of Stock</span>
-              )}
-            </div>
+            {!item.product?.in_stock && (
+              <span className="text-xs text-warning">Out of Stock</span>
+            )}
           </div>
 
           {/* Remove Button */}
@@ -160,7 +153,7 @@ export const CartItem: React.FC<CartItemProps> = ({
           {/* Total Price */}
           <div className="text-right">
             <PriceDisplay
-              price={item.total_price}
+              price={item.product.price * item.quantity}
               size="sm"
               className="font-semibold"
             />

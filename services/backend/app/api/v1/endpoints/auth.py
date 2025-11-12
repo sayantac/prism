@@ -67,7 +67,10 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     """Login with username/email and password"""
 
-    user = db.query(User).filter((User.username == login_data.username)).first()
+    # Support both username and email for login
+    user = db.query(User).filter(
+        (User.username == login_data.username) | (User.email == login_data.username)
+    ).first()
 
     if not user:
         raise HTTPException(

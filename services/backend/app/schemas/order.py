@@ -28,7 +28,9 @@ class OrderBase(BaseSchema):
 class OrderCreate(OrderBase):
     """Order creation schema."""
 
-    pass
+    billing_address: Dict[str, Any] | None = None
+    shipping_address: Dict[str, Any] | None = None
+    recommendation_source: str | None = None
 
 
 class OrderUpdate(BaseSchema):

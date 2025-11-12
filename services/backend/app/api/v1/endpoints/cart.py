@@ -28,14 +28,6 @@ async def get_cart(
     current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)
 ):
     """Get user's cart"""
-    return {
-                "items": [],
-                "item_count": 0,
-                "subtotal": Decimal("0.00"),
-                "estimated_tax": Decimal("0.00"),
-                "estimated_shipping": Decimal("0.00"),
-                "estimated_total": Decimal("0.00"),
-            }
     # TODO: Optimize queries to reduce number of DB hits
     cart = db.query(Cart).filter(Cart.user_id == current_user.id).first()
 
@@ -50,12 +42,13 @@ async def get_cart(
     total_items = 0
 
     query = text("""
-        SELECT ci.product_id, ci.quantity, ci.created_at, 
+        SELECT ci.product_id, ci.quantity, ci.added_at, 
                p.id, p.name, p.brand, p.price, p.description, p.images, 
                p.stock_quantity, p.in_stock, p.is_active
         FROM cart_items ci 
+        JOIN carts c ON ci.cart_id = c.id
         JOIN products p ON ci.product_id = p.id 
-        WHERE ci.user_id = :user_id AND p.is_active = true
+        WHERE c.user_id = :user_id AND p.is_active = true
     """)
 
     result = db.execute(query, {"user_id": str(current_user.id)})
@@ -75,7 +68,7 @@ async def get_cart(
 
             cart_items.append(
                 CartItemResponse(
-                    product=product, quantity=row.quantity, added_at=row.created_at
+                    product=product, quantity=row.quantity, added_at=row.added_at
                 )
             )
 

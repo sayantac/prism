@@ -95,8 +95,9 @@ async def create_order(
     order = Order(
         user_id=current_user.id,
         order_number=generate_order_number(),
+        subtotal=total_amount,
         total_amount=total_amount,
-        shipping_address=current_user.address
+        shipping_address=order_data.shipping_address or (current_user.address
         if current_user.address is not None
         else {
             "street": "783, Sneh Nagar",
@@ -104,8 +105,8 @@ async def create_order(
             "state": "Madhya Pradesh",
             "zipCode": "452001",
             "country": "India",
-        },
-        billing_address=current_user.address
+        }),
+        billing_address=order_data.billing_address or (current_user.address
         if current_user.address is not None
         else {
             "street": "783, Sneh Nagar",
@@ -113,10 +114,10 @@ async def create_order(
             "state": "Madhya Pradesh",
             "zipCode": "452001",
             "country": "India",
-        },
-        shipping_method=order_data.shipping_method,
-        notes=order_data.notes,
-        estimated_delivery=datetime.utcnow() + timedelta(days=7),
+        }),
+        payment_method=order_data.payment_method,
+        order_notes=order_data.order_notes,
+        recommendation_source=order_data.recommendation_source,
     )
 
     db.add(order)

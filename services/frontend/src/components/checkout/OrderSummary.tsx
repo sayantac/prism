@@ -2,15 +2,14 @@ import { CreditCard, Package, Tag, Truck } from "lucide-react";
 import { PriceDisplay } from "../common/PriceDisplay";
 
 interface OrderItem {
-  id: string;
-  product_id: string;
-  quantity: number;
-  unit_price: number;
-  total_price: number;
-  product?: {
+  product: {
+    id: string;
     name: string;
     images: string[];
+    price: number;
   };
+  quantity: number;
+  added_at: string;
 }
 
 interface OrderSummaryProps {
@@ -48,7 +47,7 @@ export const OrderSummary: React.FC<OrderSummaryProps> = ({
         </div>
 
         {items.map((item) => (
-          <div key={item.id} className="flex space-x-3">
+          <div key={item.product.id} className="flex space-x-3">
             <img
               src={item.product?.images?.[0] || "/api/placeholder/60/60"}
               alt={item.product?.name || "Product"}
@@ -59,11 +58,11 @@ export const OrderSummary: React.FC<OrderSummaryProps> = ({
                 {item.product?.name || "Product"}
               </p>
               <p className="text-xs text-base-content/60">
-                Qty: {item.quantity} × <PriceDisplay price={item.unit_price} />
+                Qty: {item.quantity}
               </p>
             </div>
             <div className="text-sm font-medium">
-              <PriceDisplay price={item.total_price} />
+              <PriceDisplay price={item.product.price * item.quantity} />
             </div>
           </div>
         ))}

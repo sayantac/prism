@@ -1694,10 +1694,21 @@ class CompleteEcomDataMigrator:
 
 # Usage example
 if __name__ == "__main__":
-    # Database connection
-    DATABASE_URL = "postgresql://tanmay:123@localhost:5432/recom_sys"
+    # Database connection - updated for Docker environment
+    # When running inside Docker container, use 'postgres' as host
+    # When running locally, use 'localhost'
+    import os
+    
+    # Check if running in Docker (backend container has this env var from docker-compose)
+    if os.getenv('RUNNING_IN_DOCKER') or os.path.exists('/.dockerenv'):
+        DATABASE_URL = "postgresql://ecommerce_user:ecommerce_pass@postgres:5432/ecommerce"
+    else:
+        DATABASE_URL = "postgresql://ecommerce_user:ecommerce_pass@localhost:5432/ecommerce"
 
-    CSV_FILE_PATH = "data-from-db.csv"
+    # CSV file path - will be in /app/ when running in Docker
+    import os
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    CSV_FILE_PATH = os.path.join(SCRIPT_DIR, "products-data.csv")
 
     # Initialize migrator
     migrator = CompleteEcomDataMigrator(DATABASE_URL, CSV_FILE_PATH)

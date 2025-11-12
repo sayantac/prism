@@ -20,8 +20,14 @@ from faker import Faker
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-# Database configuration
-DATABASE_URL = "postgresql://tanmay:123@localhost:5432/recom_sys"
+# Database configuration - updated for Docker environment
+import os
+
+# Check if running in Docker
+if os.getenv('RUNNING_IN_DOCKER') or os.path.exists('/.dockerenv'):
+    DATABASE_URL = "postgresql://ecommerce_user:ecommerce_pass@postgres:5432/ecommerce"
+else:
+    DATABASE_URL = "postgresql://ecommerce_user:ecommerce_pass@localhost:5432/ecommerce"
 
 # Initialize Faker for random data
 fake = Faker()

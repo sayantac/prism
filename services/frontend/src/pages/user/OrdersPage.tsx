@@ -311,7 +311,7 @@ export const OrdersPage: React.FC = () => {
                           </span>
                         </span>
                         <PriceDisplay
-                          price={order.total_amount}
+                          price={parseFloat(order.total_amount)}
                           size="lg"
                           className="font-bold text-gray-900"
                         />
@@ -499,7 +499,7 @@ export const OrdersPage: React.FC = () => {
                             Quantity: {item.quantity}
                           </p>
                           <PriceDisplay
-                            price={item.total_price}
+                            price={parseFloat(item.total_price)}
                             size="sm"
                             className="text-gray-900 font-medium"
                           />
@@ -551,27 +551,27 @@ export const OrdersPage: React.FC = () => {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-600">Subtotal</span>
-                      <PriceDisplay price={selectedOrder.subtotal} size="sm" />
+                      <PriceDisplay price={parseFloat(selectedOrder.subtotal)} size="sm" />
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-600">Shipping</span>
                       <PriceDisplay
-                        price={selectedOrder.shipping_amount}
+                        price={parseFloat(selectedOrder.shipping_amount || "0")}
                         size="sm"
                       />
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-600">Tax</span>
                       <PriceDisplay
-                        price={selectedOrder.tax_amount}
+                        price={parseFloat(selectedOrder.tax_amount || "0")}
                         size="sm"
                       />
                     </div>
-                    {selectedOrder.discount_amount !== "0.00" && (
+                    {selectedOrder.discount_amount && parseFloat(selectedOrder.discount_amount) > 0 && (
                       <div className="flex justify-between">
                         <span className="text-sm text-gray-600">Discount</span>
                         <PriceDisplay
-                          price={`-${selectedOrder.discount_amount}`}
+                          price={-parseFloat(selectedOrder.discount_amount)}
                           size="sm"
                           className="text-green-600"
                         />
@@ -582,7 +582,7 @@ export const OrdersPage: React.FC = () => {
                         Total
                       </span>
                       <PriceDisplay
-                        price={selectedOrder.total_amount}
+                        price={parseFloat(selectedOrder.total_amount)}
                         size="lg"
                         className="font-bold text-gray-900"
                       />

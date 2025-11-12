@@ -151,7 +151,7 @@ export const CheckoutPage: React.FC = () => {
   const calculateTotals = () => {
     if (!cart) return { subtotal: 0, shipping: 0, tax: 0, total: 0 };
 
-    const subtotal = cart.subtotal;
+    const subtotal = cart.total_amount;
     const shipping = subtotal > 50 ? 0 : 9.99;
     const tax = subtotal * 0.08;
     const total = subtotal + shipping + tax;
@@ -178,7 +178,11 @@ export const CheckoutPage: React.FC = () => {
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
-      <div className="flex items-center space-x-4 mb-8">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-base-content">Checkout</h1>
+          <p className="text-base-content/70">Complete your purchase</p>
+        </div>
         <Button
           variant="ghost"
           onClick={() => navigate("/cart")}
@@ -186,10 +190,6 @@ export const CheckoutPage: React.FC = () => {
         >
           Back to Cart
         </Button>
-        <div>
-          <h1 className="text-3xl font-bold text-base-content">Checkout</h1>
-          <p className="text-base-content/70">Complete your purchase</p>
-        </div>
       </div>
 
       {/* Checkout Steps */}
