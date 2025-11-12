@@ -107,8 +107,8 @@ class SegmentRuleEngine(BaseSegmentationService):
                 # Map field to SQLAlchemy expression
                 if field == "user.created_at":
                     field_expr = User.created_at
-                elif field == "user.last_active":
-                    field_expr = User.last_active
+                elif field == "user.last_login":
+                    field_expr = User.last_login
                 elif field == "user.is_active":
                     field_expr = User.is_active
                 elif field == "order.total":

@@ -116,11 +116,40 @@ class ModelTrainingHistory(Base):
     # Relationships
     model_config = relationship("MLModelConfig", back_populates="training_history")
     initiator = relationship("User")
+    model_version = relationship("ModelVersion", back_populates="training_history", uselist=False)
 
     def __repr__(self):
         return (
             f"<ModelTrainingHistory(id='{self.id}', status='{self.training_status}')>"
         )
+
+
+class ModelVersion(Base):
+    """Track model versions with file paths and metadata"""
+
+    __tablename__ = "model_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    model_config_id = Column(UUID(as_uuid=True), ForeignKey("ml_model_configs.id"), nullable=False, index=True)
+    training_history_id = Column(UUID(as_uuid=True), ForeignKey("model_training_history.id"), index=True)
+    version_number = Column(String(50), nullable=False)  # e.g., "v1.0.0", "latest", UUID
+    file_path = Column(String(500), nullable=False)  # Path to model file
+    file_size_bytes = Column(Integer)  # Size of model file
+    is_active = Column(Boolean, default=False, index=True)  # Currently active version
+    model_metadata = Column(JSONB)  # Model-specific metadata (encoders, mappings, etc.)
+    performance_metrics = Column(JSONB)  # Evaluation metrics
+    config_snapshot = Column(JSONB)  # Config used for training this version
+    training_data_hash = Column(String(64))  # SHA256 hash of training data for reproducibility
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+
+    # Relationships
+    model_config = relationship("MLModelConfig", backref="versions")
+    training_history = relationship("ModelTrainingHistory", back_populates="model_version")
+    creator = relationship("User")
+
+    def __repr__(self):
+        return f"<ModelVersion(config_id='{self.model_config_id}', version='{self.version_number}', active={self.is_active})>"
 
 
 class RecommendationMetrics(Base):

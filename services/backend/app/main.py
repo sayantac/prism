@@ -1,3 +1,5 @@
+import argparse
+import asyncio
 import logging
 import os
 import time
@@ -19,6 +21,7 @@ from app.middleware import (
 from app.models import Base
 from app.services.system_health_service import SystemMonitor
 from app.utils.logging_config import setup_logging
+from app.services.ml_engine_service import MLEngineService
 
 settings = get_settings()
 
@@ -40,6 +43,9 @@ async def lifespan(app: FastAPI):
     try:
         # init_db(db)  # Commented out - database is restored from dump
         await _init_default_admin_settings(db)
+        # ml_engine = MLEngineService(db)
+        # ml_engine.train_all_models()
+        # ml_engine.train_model(model_type="als", model_name="default_als_model")
     finally:
         db.close()
 

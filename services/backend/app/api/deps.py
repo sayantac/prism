@@ -184,7 +184,7 @@ async def get_current_user_optional(
     if user and user.is_active:
         from datetime import datetime
 
-        user.last_active = datetime.utcnow()
+        user.last_login = datetime.utcnow()
         db.commit()
         return user
 

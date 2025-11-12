@@ -54,7 +54,8 @@ class UserAnalytics(BaseSchema):
     user_id: str
     username: str
     email: str
-    full_name: str | None
+    first_name: str | None
+    last_name: str | None
     total_orders: int
     total_spent: float
 

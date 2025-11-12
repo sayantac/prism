@@ -483,8 +483,10 @@ async def check_ml_engine_health(
 
         ml_engine = MLEngineService(db)
 
+
         # Check active models
         active_models = ml_engine.active_models
+        
 
         # Check training jobs
         training_jobs = len(ml_engine.training_jobs)

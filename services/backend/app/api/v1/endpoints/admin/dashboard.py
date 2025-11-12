@@ -520,7 +520,7 @@ def _get_recent_orders_data(db: Session) -> Dict[str, Any]:
                 {
                     "id": str(order.id),
                     "order_number": order.order_number,
-                    "customer_name": order.user.full_name if order.user else "Unknown",
+                    "customer_name": order.user.first_name if order.user else "Unknown",
                     "total_amount": float(order.total_amount),
                     "status": order.status,
                     "created_at": order.created_at.isoformat(),

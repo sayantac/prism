@@ -266,14 +266,15 @@ async def admin_top_customers(
             User.id,
             User.username,
             User.email,
-            User.full_name,
+            User.first_name,
+            User.last_name,
             func.count(Order.id).label("total_orders"),
             func.sum(Order.total_amount).label("total_spent"),
         )
         .join(Order, User.id == Order.user_id)
         .filter(Order.created_at >= since_date)
         .filter(Order.status.in_(["confirmed", "shipped", "delivered"]))
-        .group_by(User.id, User.username, User.email, User.full_name)
+        .group_by(User.id, User.username, User.email, User.first_name)
         .order_by(desc("total_spent"))
         .limit(limit)
         .all()
@@ -284,7 +285,8 @@ async def admin_top_customers(
             "user_id": str(row.id),
             "username": row.username,
             "email": row.email,
-            "full_name": row.full_name,
+            "first_name": row.first_name,
+            "last_name": row.last_name,
             "total_orders": row.total_orders,
             "total_spent": float(row.total_spent),
         }

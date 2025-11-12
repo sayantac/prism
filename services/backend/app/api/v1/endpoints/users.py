@@ -12,7 +12,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/profile", response_model=UserResponse)
+@router.get("/profile")
 async def get_user_profile(current_user: User = Depends(get_current_active_user)):
     """Get current user profile."""
     return current_user

@@ -15,7 +15,8 @@ class UserBase(BaseSchema):
     username: str
     phone: str | None
     email: EmailStr
-    full_name: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     locale: str = "en"
     interests: List[str] | None = []
     preferences: Dict[str, Any] | None = {}
@@ -34,7 +35,8 @@ class UserUpdate(BaseSchema):
     username: str | None = None
     email: EmailStr | None = None
     phone: str | None = None
-    full_name: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     locale: str | None = None
     interests: List[str] | None = None
     preferences: Dict[str, Any] | None = None
@@ -50,7 +52,7 @@ class UserResponse(UserBase):
     is_superuser: bool
     avatar_url: str | None = None
     created_at: datetime
-    last_active: datetime | None = None
+    last_login: datetime | None = None
     viewed_products: List[UUID] | None = []
     roles: Any
     permissions: Any

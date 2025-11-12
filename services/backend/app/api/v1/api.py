@@ -14,10 +14,12 @@ from app.api.v1.endpoints import (
 from app.api.v1.endpoints.admin import (
     analytics as admin_analytics,
     dashboard as admin_dashboard,
+    ml_models as admin_ml_models,
     orders as admin_orders,
     products as admin_products,
     recommendation_engine as admin_recommendation_engine,
     settings as admin_settings,
+    system as admin_system,
     user_analytics as admin_user_analytics,
     user_segmentation as admin_user_segmentation,
     users as admin_users,
@@ -72,5 +74,13 @@ api_router.include_router(
     tags=["admin-recommendation-engine"],
 )
 api_router.include_router(
+    admin_ml_models.router,
+    prefix="/admin/ml-models",
+    tags=["admin-ml-models"],
+)
+api_router.include_router(
     admin_settings.router, prefix="/admin/settings", tags=["admin-settings"]
+)
+api_router.include_router(
+    admin_system.router, prefix="/admin/system", tags=["admin-system"]
 )

@@ -60,7 +60,7 @@ class ChurnPredictor(BaseAnalyticsService):
 
             # Days since last activity
             days_since_activity = (
-                (now - user.last_active).days if user.last_active else 365
+                (now - user.last_login).days if user.last_login else 365
             )
 
             # Days since last order
@@ -136,8 +136,8 @@ class ChurnPredictor(BaseAnalyticsService):
             user = self.db.query(User).filter(User.id == uuid.UUID(user_id)).first()
             now = datetime.utcnow()
 
-            if user and user.last_active:
-                days_since_activity = (now - user.last_active).days
+            if user and user.last_login:
+                days_since_activity = (now - user.last_login).days
                 if days_since_activity > 60:
                     factors.append("No activity in 60+ days")
                 elif days_since_activity > 30:

@@ -89,6 +89,23 @@ class AuditLog(Base):
     error_message = Column(Text)
     created_at = Column(DateTime(timezone=False), server_default=func.now())
 
+    # Backwards compatibility helpers for legacy code paths
+    @property
+    def entity_type(self):
+        return self.resource_type
+
+    @entity_type.setter
+    def entity_type(self, value):
+        self.resource_type = value
+
+    @property
+    def entity_id(self):
+        return self.resource_id
+
+    @entity_id.setter
+    def entity_id(self, value):
+        self.resource_id = value
+
 
 class SystemLog(Base):
     """System logs for error tracking and debugging."""

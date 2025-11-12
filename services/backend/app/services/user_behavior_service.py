@@ -129,8 +129,8 @@ class UserBehaviorService:
             audit_log = AuditLog(
                 user_id=user_id,
                 action=action,
-                entity_type=entity_type,
-                entity_id=entity_id,
+                resource_type=entity_type,
+                resource_id=str(entity_id) if entity_id is not None else None,
                 new_values=extra_data or {},
             )
             self.db.add(audit_log)
@@ -195,7 +195,7 @@ class UserBehaviorService:
             action_counts = (
                 self.db.query(AuditLog.action, func.count(AuditLog.id).label("count"))
                 .filter(AuditLog.user_id == user_id)
-                .filter(AuditLog.timestamp >= since_date)
+                .filter(AuditLog.created_at >= since_date)
                 .group_by(AuditLog.action)
                 .all()
             )
@@ -347,7 +347,7 @@ class UserBehaviorService:
 
             deleted_count = (
                 self.db.query(AuditLog)
-                .filter(AuditLog.timestamp < cutoff_date)
+                .filter(AuditLog.created_at < cutoff_date)
                 .filter(
                     AuditLog.action.in_(
                         ["VIEW_PRODUCT", "ADD_TO_CART", "REMOVE_FROM_CART"]

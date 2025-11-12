@@ -325,26 +325,107 @@ async def get_segment_analytics(
     current_user: User = Depends(require_permission("view_user_segmentation")),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Get analytics for segments"""
+    """
+    Get analytics for segments with real conversion rate and average order value calculations.
+
+    Calculates:
+    - conversion_rate: Percentage of segment users who made at least one order in the time period
+    - avg_order_value: Average order total for segment users in the time period
+    """
     try:
+        from datetime import datetime, timedelta
+        from sqlalchemy import func, distinct
+        from app.models import Order, UserSegmentMembership
+        from decimal import Decimal
+
         # Get all segments with their member counts
         segmentation_service = UserSegmentationService(db)
         segments = segmentation_service.get_segments(active_only=False)
-        
-        # Transform to the format expected by frontend (array of segment performance objects)
-        segment_performance = [
-            {
-                "segment_id": str(s.get("id")),
-                "segment_name": s.get("name"),
-                "user_count": s.get("member_count", 0),
+
+        # Calculate date cutoff for analytics
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+        # Transform to the format expected by frontend with real calculations
+        segment_performance = []
+
+        for s in segments:
+            seg_id = str(s.get("id"))
+            seg_name = s.get("name")
+            member_count = s.get("member_count", 0)
+
+            # Initialize default values
+            conversion_rate = 0.0
+            avg_order_value = 0.0
+
+            if member_count > 0:
+                try:
+                    # Get user IDs in this segment
+                    segment_user_ids = (
+                        db.query(UserSegmentMembership.user_id)
+                        .filter(
+                            UserSegmentMembership.segment_id == s.get("id"),
+                            UserSegmentMembership.is_active == True
+                        )
+                        .all()
+                    )
+                    segment_user_ids = [str(uid[0]) for uid in segment_user_ids]
+
+                    if segment_user_ids:
+                        # Calculate conversion rate: % of users who made at least one order
+                        users_with_orders = (
+                            db.query(func.count(distinct(Order.user_id)))
+                            .filter(
+                                Order.user_id.in_(segment_user_ids),
+                                Order.created_at >= cutoff_date,
+                                Order.status.notin_(["cancelled", "refunded"])
+                            )
+                            .scalar()
+                        )
+
+                        conversion_rate = round((users_with_orders / len(segment_user_ids)) * 100, 2)
+
+                        # Calculate average order value
+                        total_order_value = (
+                            db.query(func.sum(Order.total_amount))
+                            .filter(
+                                Order.user_id.in_(segment_user_ids),
+                                Order.created_at >= cutoff_date,
+                                Order.status.notin_(["cancelled", "refunded"])
+                            )
+                            .scalar()
+                        )
+
+                        order_count = (
+                            db.query(func.count(Order.id))
+                            .filter(
+                                Order.user_id.in_(segment_user_ids),
+                                Order.created_at >= cutoff_date,
+                                Order.status.notin_(["cancelled", "refunded"])
+                            )
+                            .scalar()
+                        )
+
+                        if order_count > 0 and total_order_value:
+                            # Convert Decimal to float
+                            if isinstance(total_order_value, Decimal):
+                                total_order_value = float(total_order_value)
+                            avg_order_value = round(total_order_value / order_count, 2)
+
+                except Exception as calc_error:
+                    logger.warning(f"Error calculating analytics for segment {seg_id}: {calc_error}")
+                    # Keep default 0.0 values if calculation fails
+
+            segment_performance.append({
+                "segment_id": seg_id,
+                "segment_name": seg_name,
+                "user_count": member_count,
                 "segment_type": s.get("segment_type", "custom"),
                 "is_active": s.get("is_active", False),
-                "conversion_rate": 0.0,  # TODO: Calculate from actual data
-                "avg_order_value": 0.0,  # TODO: Calculate from actual data
-            }
-            for s in segments
-        ]
-        
+                "conversion_rate": conversion_rate,
+                "avg_order_value": avg_order_value,
+                "days_analyzed": days,
+            })
+
         # Filter by segment_id if provided
         if segment_id:
             segment_performance = [sp for sp in segment_performance if sp["segment_id"] == segment_id]
@@ -354,7 +435,7 @@ async def get_segment_analytics(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
-        logger.error(f"Error getting segment analytics: {e}")
+        logger.error(f"Error getting segment analytics: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve segment analytics",

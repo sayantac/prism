@@ -43,15 +43,15 @@ class UserSegmentationService:
     def create_rfm_segments(self):
         return self.rfm_segmenter.create_rfm_segments()
 
-    # Placeholder methods
+    # User membership management
     def get_segment_users(self, segment_id, limit=100, offset=0):
-        # TODO: Implement in segment_manager
-        return {"message": "Not yet implemented in modular services"}
+        """Get users in a segment with pagination."""
+        return self.segment_manager.get_segment_users(segment_id, limit, offset)
 
     def add_user_to_segment(self, segment_id, user_id, score=None, reason=None):
-        # TODO: Implement in segment_manager
-        return {"message": "Not yet implemented in modular services"}
+        """Manually add a user to a segment."""
+        return self.segment_manager.add_user_to_segment(segment_id, user_id, score, reason)
 
     def remove_user_from_segment(self, segment_id, user_id):
-        # TODO: Implement in segment_manager
-        return {"message": "Not yet implemented in modular services"}
+        """Remove a user from a segment."""
+        return self.segment_manager.remove_user_from_segment(segment_id, user_id)

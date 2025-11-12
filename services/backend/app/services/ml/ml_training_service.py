@@ -1,6 +1,28 @@
 """
 ML Training Orchestration Service.
-Handles async training jobs, status tracking, and coordination between models.
+
+This module coordinates training of all ML models in the system, handling:
+- Asynchronous training job execution
+- Status tracking and progress reporting
+- Data preparation and feature engineering
+- Model validation and deployment
+
+Supports training:
+- Collaborative Filtering (ALS)
+- Content-Based Filtering (TF-IDF + Embeddings)
+- User Segmentation (K-Means, RFM)
+- Reorder Prediction (LightGBM)
+- Frequently Bought Together (FP-Growth)
+
+Example Usage:
+    >>> training_service = MLTrainingService(db_session)
+    >>> result = training_service.start_training_async(
+    ...     model_type="als",
+    ...     model_name="collaborative_v1",
+    ...     parameters={"factors": 50, "iterations": 15}
+    ... )
+    >>> # Check status
+    >>> status = training_service.get_training_status(result["training_id"])
 """
 import logging
 import uuid
@@ -11,7 +33,9 @@ from typing import Any, Callable, Dict, List, Optional
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models import Order, OrderItem
+from app.services.fbt_recommender_service import FBTRecommenderService
 from app.services.ml.als_model_service import ALSModelService
 from app.services.ml.content_model_service import ContentModelService
 from app.services.ml.kmeans_model_service import KMeansModelService
@@ -19,13 +43,39 @@ from app.services.ml.lightgbm_model_service import LightGBMModelService
 from app.services.ml.ml_feature_service import MLFeatureService
 from app.services.ml.ml_model_manager import MLModelManager
 
+settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
 class MLTrainingService:
-    """Service for orchestrating ML model training."""
+    """
+    Service for orchestrating ML model training across all algorithms.
+
+    Manages asynchronous training jobs with progress tracking, coordinates
+    data loading and preprocessing, and handles model deployment after
+    successful training.
+
+    Features:
+    - Async training with ThreadPoolExecutor
+    - Progress callbacks for real-time updates
+    - Automatic model versioning and deployment
+    - Training job management (status, logs, cancellation)
+    - Comprehensive error handling and logging
+
+    Example:
+        >>> service = MLTrainingService(db_session)
+        >>> # Train collaborative filtering
+        >>> result = service.start_training_async(
+        ...     model_type="als",
+        ...     model_name="cf_model_v1",
+        ...     parameters={"factors": 50}
+        ... )
+        >>> # Monitor progress
+        >>> status = service.get_training_status(result["training_id"])
+        >>> print(status["status"])  # "running", "completed", or "failed"
+    """
     
-    def __init__(self, db: Session, models_dir: str = "ml_models"):
+    def __init__(self, db: Session, models_dir: str = None):
         self.db = db
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.training_jobs: Dict[str, Dict] = {}
@@ -46,6 +96,7 @@ class MLTrainingService:
         model_name: str,
         parameters: Dict[str, Any],
         callback: Optional[Callable] = None,
+        training_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Start training asynchronously.
@@ -60,7 +111,8 @@ class MLTrainingService:
             Dictionary with success status and training_id
         """
         try:
-            training_id = str(uuid.uuid4())
+            training_id = training_id or str(uuid.uuid4())
+            parameters = parameters or {}
             
             if training_id in self.training_jobs:
                 return {"success": False, "error": "Training already in progress"}
@@ -81,6 +133,7 @@ class MLTrainingService:
                 "model_name": model_name,
                 "started_at": datetime.utcnow(),
                 "status": "running",
+                "parameters": parameters,
             }
 
             logger.info(f"Started async training for {model_type} (ID: {training_id})")
@@ -89,6 +142,63 @@ class MLTrainingService:
         except Exception as e:
             logger.error(f"Error starting async training: {e}")
             return {"success": False, "error": str(e)}
+
+    def train_model(
+        self,
+        model_type: str,
+        model_name: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+        callback: Optional[Callable] = None,
+    ) -> Dict[str, Any]:
+        """Train a model synchronously on the current thread."""
+
+        training_id = str(uuid.uuid4())
+        model_name = model_name or f"{model_type}_manual"
+        parameters = parameters or {}
+
+        result = self._train_model_sync(
+            training_id,
+            model_type,
+            model_name,
+            parameters,
+            callback,
+        )
+
+        result.setdefault("training_id", training_id)
+        result.setdefault("model_type", model_type)
+        result.setdefault("model_name", model_name)
+        return result
+
+    def train_all_models(
+        self,
+        parameters_by_model: Optional[Dict[str, Dict[str, Any]]] = None,
+        callback: Optional[Callable] = None,
+    ) -> Dict[str, Any]:
+        """Train all supported models sequentially."""
+
+        parameters_by_model = parameters_by_model or {}
+        training_order = ["als", "content", "kmeans", "lightgbm", "fbt"]
+
+        results: Dict[str, Dict[str, Any]] = {}
+
+        for model_type in training_order:
+            params = parameters_by_model.get(model_type, {})
+            model_name = f"{model_type}_batch_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            result = self.train_model(
+                model_type=model_type,
+                model_name=model_name,
+                parameters=params,
+                callback=callback,
+            )
+            results[model_type] = result
+
+        success = all(res.get("success") for res in results.values())
+        return {"success": success, "results": results}
+
+    def refresh_model_cache(self) -> Dict[str, Any]:
+        """Reload persisted models into the in-memory cache."""
+
+        return self.model_manager.reload_active_models()
 
     def get_training_status(self, training_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -207,6 +317,7 @@ class MLTrainingService:
         """Synchronous training function."""
         try:
             logger.info(f"Starting training for {model_type} (ID: {training_id})")
+            parameters = parameters or {}
 
             # Callback for progress updates
             def update_progress(status: str, metrics: Dict = None):
@@ -235,20 +346,26 @@ class MLTrainingService:
                 result = self._train_kmeans(training_data, parameters, update_progress)
             elif model_type == "content":
                 result = self._train_content(training_data, parameters, update_progress)
+            elif model_type == "fbt":
+                result = self._train_fbt(training_data, parameters, update_progress)
             else:
                 raise ValueError(f"Unknown model type: {model_type}")
 
             # Save model if training successful
-            if result["success"]:
-                model_path = self.model_manager.save_model(
-                    result["model"],
-                    model_type,
-                    training_id
-                )
-                result["model_path"] = model_path
-                
-                # Set as active model
-                self.model_manager.set_active_model(model_type, result["model"])
+            if result.get("success"):
+                result["training_id"] = training_id
+                result["model_type"] = model_type
+                result["model_name"] = model_name
+
+                if result.get("model"):
+                    save_result = self.model_manager.save_model(
+                        result["model"],
+                        model_type,
+                        training_id,
+                        metrics=result.get("metrics"),
+                    )
+                    result["model_path"] = save_result["model_path"]
+                    result["model"] = save_result["model"]
 
             update_progress("completed", result.get("metrics", {}))
             logger.info(f"Completed training for {model_type} (ID: {training_id})")
@@ -302,7 +419,7 @@ class MLTrainingService:
             # Load user data
             users_query = """
                 SELECT 
-                    id, created_at, last_active, is_active
+                    id, created_at, last_login, is_active
                 FROM users 
                 WHERE is_active = true
                 LIMIT 50000
@@ -418,15 +535,105 @@ class MLTrainingService:
         parameters: Dict[str, Any],
         progress_callback: Callable,
     ) -> Dict[str, Any]:
-        """Train content-based model."""
+        """
+        Train content-based filtering model.
+
+        Args:
+            data: Training data dictionary
+            parameters: Model hyperparameters
+            progress_callback: Progress update callback
+
+        Returns:
+            Training result dictionary
+        """
         try:
             products_df = data["products"]
-            
+
             # Train model
             return self.content_service.train_content_model(
                 products_df, parameters, progress_callback
             )
 
         except Exception as e:
-            logger.error(f"Error training content-based model: {e}")
+            logger.error(f"Error training content-based model: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
+
+    def _train_fbt(
+        self,
+        data: Dict[str, pd.DataFrame],
+        parameters: Dict[str, Any],
+        progress_callback: Callable,
+    ) -> Dict[str, Any]:
+        """
+        Train Frequently Bought Together (FBT) model using FP-Growth.
+
+        Args:
+            data: Training data dictionary (unused, FBT loads from DB directly)
+            parameters: FP-Growth parameters (min_support, min_confidence, min_lift)
+            progress_callback: Progress update callback
+
+        Returns:
+            Training result dictionary with success status and statistics
+        """
+        try:
+            progress_callback(
+                "running", {"progress": 30, "message": "Training FP-Growth model"}
+            )
+
+            # Initialize FBT service
+            fbt_service = FBTRecommenderService(
+                db=self.db,
+                min_support=parameters.get("min_support", settings.FBT_MIN_SUPPORT),
+                min_confidence=parameters.get(
+                    "min_confidence", settings.FBT_MIN_CONFIDENCE
+                ),
+                min_lift=parameters.get("min_lift", settings.FBT_MIN_LIFT),
+                max_itemset_size=parameters.get(
+                    "max_itemset_size", settings.FBT_MAX_ITEMSET_SIZE
+                ),
+            )
+
+            progress_callback(
+                "running", {"progress": 50, "message": "Mining association rules"}
+            )
+
+            # Train model (force retrain)
+            fbt_service.train(force_retrain=True)
+            fbt_service.save_to_cache()
+
+            progress_callback(
+                "running", {"progress": 90, "message": "Finalizing model"}
+            )
+
+            # Get model statistics
+            stats = fbt_service.get_model_statistics()
+
+            model_payload = {
+                "cache_file": fbt_service.cache_file,
+                "parameters": {
+                    "min_support": fbt_service.min_support,
+                    "min_confidence": fbt_service.min_confidence,
+                    "min_lift": fbt_service.min_lift,
+                    "max_itemset_size": fbt_service.max_itemset_size,
+                },
+                "trained_at": datetime.utcnow().isoformat(),
+            }
+
+            return {
+                "success": True,
+                "model": model_payload,
+                "metrics": {
+                    "n_products_with_recommendations": stats.get(
+                        "n_products_with_recommendations", 0
+                    ),
+                    "total_recommendations": stats.get("total_recommendations", 0),
+                    "avg_recommendations_per_product": stats.get(
+                        "avg_recommendations_per_product", 0
+                    ),
+                },
+            }
+
+        except Exception as e:
+            logger.error(f"Error training FBT model: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+

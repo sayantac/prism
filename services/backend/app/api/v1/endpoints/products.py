@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 import os
 import uuid
@@ -27,7 +28,6 @@ from app.services.embedding_service import EmbeddingService
 from app.services.product_service import product_service
 from app.services.search_service import SearchService
 from app.services.user_behavior_service import UserBehaviorService
-
 
 class SearchParams:
     def __init__(
@@ -188,22 +188,18 @@ async def list_categories(
     return root_categories
 
 
-@router.get("/trending", response_model=List[ProductResponse])
+@router.get("/trending")
 async def get_trending_products(
     limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
     """Get trending products based on recent views/purchases"""
-    # Simple implementation: return most recently created products
-    # TODO: Implement actual trending logic based on analytics
-    products = (
-        db.query(Product)
-        .filter(Product.is_active == True, Product.in_stock == True)
-        .order_by(Product.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    return products
+    from app.services.recommendation_service import RecommendationService
+        
+    rec_service = RecommendationService(db)
+    trending = await rec_service.get_trending_products(limit)
+        
+    return trending
 
 
 @router.get("/search", response_model=SearchResponse)
@@ -318,26 +314,6 @@ async def get_new_arrivals(
     return products
 
 
-@router.get("/recommendations/trending")
-async def get_popular_products(
-    limit: int = Query(default=20, ge=1, le=100),
-    days: int = Query(default=30, ge=1, le=365),
-    db: Session = Depends(get_db),
-):
-    """Get popular products based on recent purchases"""
-    try:
-        from app.services.recommendation_service import RecommendationService
-        
-        rec_service = RecommendationService(db)
-        trending = await rec_service.get_trending_products(limit)
-        
-        return trending
-
-    except Exception as e:
-        logger.error(f"Error getting popular products: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/recommendations/customers-who-bought-also-bought", response_model=List[ProductResponse])
 async def get_customers_who_bought_also_bought(
     product_id: str = Query(..., description="Product ID to find related products"),
@@ -369,33 +345,6 @@ async def get_customers_who_bought_also_bought(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/recommendations/personalized", response_model=List[ProductResponse])
-async def get_personalized_recommendations(
-    limit: int = Query(20, ge=1, le=50),
-    db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional),
-):
-    """Get personalized product recommendations"""
-
-    if not current_user:
-        return await get_popular_products(limit, 30)
-
-    behavior_service = UserBehaviorService(db)
-    product_ids = behavior_service.get_recommended_products_based_on_behavior(
-        str(current_user.id), limit
-    )
-
-    if not product_ids:
-        return await get_popular_products(limit, 30)
-
-    recommendations = (
-        db.query(Product)
-        .filter(Product.id.in_(product_ids))
-        .filter(Product.is_active == True)
-        .all()
-    )
-
-    return recommendations
 
 
 @router.get("/new-arrivals")
@@ -458,12 +407,12 @@ async def get_user_recommendations(
             user_id=str(current_user.id),
             limit=limit
         )
-        recommendations_dict = [
-            ProductResponse.from_orm(product) for product in recommendations
-        ]
+        # recommendations_dict = [
+        #     ProductResponse.from_orm(product) for product in recommendations
+        # ]
         
         return {
-            "recommendations": recommendations_dict,
+            "recommendations": recommendations,
             "source": "ml_based",
             "ml_models_used": ["vector_similarity", "content_based"],
         }
@@ -475,11 +424,11 @@ async def get_user_recommendations(
             from app.services.recommendation_service import RecommendationService
             rec_service = RecommendationService(db)
             recommendations = await rec_service.get_trending_products(limit=limit)
-            recommendations_dict = [
-                ProductResponse.from_orm(product) for product in recommendations
-            ]
+            # recommendations_dict = [
+            #     ProductResponse.from_orm(product) for product in recommendations
+            # ]
             return {
-                "recommendations": recommendations_dict,
+                "recommendations": recommendations,
                 "source": "fallback_trending",
                 "ml_models_used": [],
             }
@@ -488,7 +437,7 @@ async def get_user_recommendations(
             raise HTTPException(status_code=500, detail=f"Recommendation error: {str(e)}")
 
 
-@router.get("/fbt-recommendations/{product_id}", response_model=List[ProductResponse])
+@router.get("/fbt-recommendations/{product_id}")
 async def get_fbt_recommendations(
     product_id: str,
     limit: int = Query(default=4, ge=1, le=20),
@@ -505,7 +454,7 @@ async def get_fbt_recommendations(
         
         # Use ML-based recommendation service for similar products
         rec_service = RecommendationService(db)
-        fbt_products = await rec_service.get_similar_products(
+        fbt_products = await rec_service.get_fbt_recommendations(
             product_id=product_id,
             limit=limit
         )
@@ -516,6 +465,559 @@ async def get_fbt_recommendations(
         raise
     except Exception as e:
         logger.error(f"Error getting FBT recommendations for {product_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recommendations/collaborative")
+async def get_collaborative_recommendations(
+    limit: int = Query(default=10, ge=1, le=50),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """
+    Get collaborative filtering (ALS) recommendations for the user.
+
+    Uses user-user and item-item collaborative filtering based on purchase patterns.
+    """
+    try:
+        from app.services.recommendation_service import RecommendationService
+        from app.services.ml_engine_service import MLEngineService
+
+        if not current_user:
+            # Anonymous users get trending products
+            rec_service = RecommendationService(db)
+            trending = await rec_service.get_trending_products(limit=limit)
+            return trending
+
+        user_id = str(current_user.id)
+
+        # Get ML engine with collaborative filtering model
+        ml_engine = MLEngineService(db=db)
+        cf_model = ml_engine.active_models.get("als")
+
+        if not cf_model:
+            logger.warning("ALS model not available, falling back to trending")
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        # Get collaborative filtering recommendations
+        from app.services.ml.als_model_service import ALSModelService
+        als_service = ALSModelService()
+        product_ids = als_service.get_recommendations(
+            model_data=cf_model,
+            user_id=current_user.id,
+            n_recommendations=limit
+        )
+
+        # Enrich with product data
+        recommendations = []
+        for product_id in product_ids:
+            product = db.query(Product).filter(
+                Product.id == product_id,
+                Product.is_active == True
+            ).first()
+
+            if product:
+                recommendations.append({
+                    "product_id": str(product.id),
+                    "product": product,
+                    "score": 0.8,  # ALS doesn't return scores directly
+                    "algorithm": "collaborative_filtering",
+                    "reason": "Recommended based on users with similar purchase patterns"
+                })
+
+        # Add explanations
+        rec_service = RecommendationService(db)
+        recommendations = rec_service.explainability_service.enhance_recommendations_with_explanations(
+            user_id=user_id,
+            recommendations=recommendations,
+            segment_name=None
+        )
+
+        return recommendations
+
+    except Exception as e:
+        logger.error(f"Error getting collaborative recommendations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recommendations/content-based")
+async def get_content_based_recommendations(
+    limit: int = Query(default=10, ge=1, le=50),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """
+    Get content-based filtering recommendations.
+
+    Recommends products similar to those the user has purchased before,
+    based on product features and embeddings.
+    """
+    try:
+        from app.services.recommendation_service import RecommendationService
+        from app.services.ml_engine_service import MLEngineService
+        from sqlalchemy import text
+
+        if not current_user:
+            # Anonymous users get trending products
+            rec_service = RecommendationService(db)
+            trending = await rec_service.get_trending_products(limit=limit)
+            return trending
+
+        user_id = str(current_user.id)
+
+        # Get user's purchase history
+        query = text("""
+            SELECT DISTINCT oi.product_id
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            WHERE o.user_id = :user_id
+                AND o.status NOT IN ('cancelled', 'pending')
+            ORDER BY o.created_at DESC
+            LIMIT 5
+        """)
+
+        results = db.execute(query, {"user_id": current_user.id}).fetchall()
+        purchased_product_ids = [str(r.product_id) for r in results]
+
+        if not purchased_product_ids:
+            # No purchase history, return trending
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        # Get content-based model
+        ml_engine = MLEngineService(db=db)
+        content_model = ml_engine.active_models.get("content")
+
+        if not content_model:
+            logger.warning("Content model not available")
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        # Get similar products based on purchase history
+        from app.services.ml.content_model_service import ContentModelService
+        content_service = ContentModelService()
+        product_ids = content_service.get_similar_products(
+            model_data=content_model,
+            product_ids=purchased_product_ids,
+            n_recommendations=limit
+        )
+
+        # Enrich with product data
+        recommendations = []
+        for i, product_id in enumerate(product_ids):
+            product = db.query(Product).filter(
+                Product.id == product_id,
+                Product.is_active == True
+            ).first()
+
+            if product:
+                score = 1.0 - (i / len(product_ids)) if product_ids else 0.5
+                recommendations.append({
+                    "product_id": str(product.id),
+                    "product": product,
+                    "score": round(score, 4),
+                    "algorithm": "content_based",
+                    "reason": "Similar to products you've purchased"
+                })
+
+        # Add explanations
+        rec_service = RecommendationService(db)
+        recommendations = rec_service.explainability_service.enhance_recommendations_with_explanations(
+            user_id=user_id,
+            recommendations=recommendations,
+            segment_name=None
+        )
+
+        return recommendations
+
+    except Exception as e:
+        logger.error(f"Error getting content-based recommendations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recommendations/hybrid")
+async def get_hybrid_recommendations(
+    limit: int = Query(default=10, ge=1, le=50),
+    cf_weight: float = Query(default=0.5, ge=0.0, le=1.0),
+    content_weight: float = Query(default=0.3, ge=0.0, le=1.0),
+    trending_weight: float = Query(default=0.2, ge=0.0, le=1.0),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """
+    Get hybrid recommendations combining multiple algorithms.
+
+    Blends collaborative filtering, content-based, and trending signals
+    with configurable weights for optimal diversity and accuracy.
+
+    Parameters:
+    - cf_weight: Weight for collaborative filtering (0-1)
+    - content_weight: Weight for content-based filtering (0-1)
+    - trending_weight: Weight for trending items (0-1)
+
+    Weights will be automatically normalized to sum to 1.0.
+    """
+    try:
+        from app.services.ml.hybrid_recommender_service import HybridRecommenderService
+        from app.services.ml_engine_service import MLEngineService
+
+        if not current_user:
+            # Anonymous users get trending products
+            from app.services.recommendation_service import RecommendationService
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        user_id = current_user.id
+
+        # Get ML models
+        ml_engine = MLEngineService(db=db)
+        cf_model = ml_engine.active_models.get("als")
+        content_model = ml_engine.active_models.get("content")
+
+        # Get hybrid recommendations
+        hybrid_service = HybridRecommenderService(db=db)
+        hybrid_recs = hybrid_service.get_recommendations(
+            user_id=user_id,
+            cf_model=cf_model,
+            content_model=content_model,
+            cf_weight=cf_weight,
+            content_weight=content_weight,
+            trending_weight=trending_weight,
+            n_recommendations=limit
+        )
+
+        # Enrich with product data
+        recommendations = []
+        for rec in hybrid_recs:
+            product = db.query(Product).filter(
+                Product.id == rec["product_id"],
+                Product.is_active == True
+            ).first()
+
+            if product:
+                recommendations.append({
+                    "product_id": str(product.id),
+                    "product": product,
+                    "score": rec["score"],
+                    "cf_score": rec.get("cf_score", 0.0),
+                    "content_score": rec.get("content_score", 0.0),
+                    "trending_score": rec.get("trending_score", 0.0),
+                    "algorithm": "hybrid",
+                    "reason": f"Combined score from multiple algorithms (CF: {cf_weight:.1f}, Content: {content_weight:.1f}, Trending: {trending_weight:.1f})"
+                })
+
+        # Add explanations
+        from app.services.recommendation_service import RecommendationService
+        rec_service = RecommendationService(db)
+        recommendations = rec_service.explainability_service.enhance_recommendations_with_explanations(
+            user_id=str(user_id),
+            recommendations=recommendations,
+            segment_name=None
+        )
+
+        return recommendations
+
+    except Exception as e:
+        logger.error(f"Error getting hybrid recommendations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recommendations/segment-based")
+async def get_segment_based_recommendations(
+    limit: int = Query(default=10, ge=1, le=50),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """
+    Get recommendations based on user's behavioral segment.
+
+    Uses K-Means clustering to identify similar users and recommends
+    products popular within the user's segment.
+    """
+    try:
+        from app.services.recommendation_service import RecommendationService
+        from app.models.ml_models import UserSegmentMembership
+        from sqlalchemy import text
+
+        if not current_user:
+            # Anonymous users get trending products
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        user_id = current_user.id
+
+        # Get user's segment membership
+        segment_membership = db.query(UserSegmentMembership).filter(
+            UserSegmentMembership.user_id == user_id,
+            UserSegmentMembership.is_active == True
+        ).first()
+
+        if not segment_membership:
+            # User not in any segment, return trending
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        # Get popular products within the user's segment
+        query = text("""
+            WITH segment_users AS (
+                SELECT user_id
+                FROM user_segment_memberships
+                WHERE segment_id = :segment_id
+                    AND is_active = true
+            ),
+            segment_purchases AS (
+                SELECT oi.product_id, COUNT(*) as purchase_count
+                FROM order_items oi
+                JOIN orders o ON oi.order_id = o.id
+                JOIN segment_users su ON o.user_id = su.user_id
+                WHERE o.status NOT IN ('cancelled', 'pending')
+                    AND o.user_id != :current_user_id
+                GROUP BY oi.product_id
+            )
+            SELECT sp.product_id, sp.purchase_count
+            FROM segment_purchases sp
+            JOIN products p ON sp.product_id = p.id
+            WHERE p.is_active = true
+                AND p.stock_quantity > 0
+            ORDER BY sp.purchase_count DESC
+            LIMIT :limit
+        """)
+
+        results = db.execute(query, {
+            "segment_id": segment_membership.segment_id,
+            "current_user_id": user_id,
+            "limit": limit
+        }).fetchall()
+
+        # Enrich with product data
+        recommendations = []
+        for i, row in enumerate(results):
+            product = db.query(Product).filter(Product.id == row.product_id).first()
+            if product:
+                score = 1.0 - (i / len(results)) if results else 0.5
+                recommendations.append({
+                    "product_id": str(product.id),
+                    "product": product,
+                    "score": round(score, 4),
+                    "algorithm": "segment_based",
+                    "reason": f"Popular among users in your segment",
+                    "segment_id": str(segment_membership.segment_id),
+                    "popularity": row.purchase_count
+                })
+
+        # Add explanations
+        rec_service = RecommendationService(db)
+        recommendations = rec_service.explainability_service.enhance_recommendations_with_explanations(
+            user_id=str(user_id),
+            recommendations=recommendations,
+            segment_name=None
+        )
+
+        return recommendations
+
+    except Exception as e:
+        logger.error(f"Error getting segment-based recommendations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recommendations/reorder-predictions")
+async def get_reorder_predictions(
+    limit: int = Query(default=10, ge=1, le=50),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """
+    Get reorder predictions ("Buy Again") for the user.
+
+    Uses LightGBM model to predict which previously purchased products
+    the user is most likely to reorder based on purchase patterns.
+    """
+    try:
+        from app.services.recommendation_service import RecommendationService
+        from app.services.ml_engine_service import MLEngineService
+        from sqlalchemy import text
+
+        if not current_user:
+            # Anonymous users get trending products
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        user_id = current_user.id
+
+        # Get user's purchase history
+        query = text("""
+            SELECT
+                oi.product_id,
+                COUNT(*) as order_count,
+                MAX(o.created_at) as last_order_date,
+                AVG(oi.quantity) as avg_quantity
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            WHERE o.user_id = :user_id
+                AND o.status NOT IN ('cancelled', 'pending')
+            GROUP BY oi.product_id
+            HAVING COUNT(*) >= 2
+            ORDER BY MAX(o.created_at) DESC
+            LIMIT :limit
+        """)
+
+        results = db.execute(query, {"user_id": user_id, "limit": limit * 2}).fetchall()
+
+        if not results:
+            # No repeat purchases, return trending
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        # Get ML engine with LightGBM model (if available)
+        ml_engine = MLEngineService(db=db)
+        lgbm_model = ml_engine.active_models.get("lightgbm")
+
+        recommendations = []
+        for i, row in enumerate(results[:limit]):
+            product = db.query(Product).filter(
+                Product.id == row.product_id,
+                Product.is_active == True
+            ).first()
+
+            if product:
+                # Calculate reorder score based on frequency and recency
+                days_since_last = (datetime.utcnow() - row.last_order_date).days
+                recency_score = max(0, 1 - (days_since_last / 90))  # 90 days decay
+                frequency_score = min(1.0, row.order_count / 10)  # Cap at 10 orders
+                score = (recency_score * 0.6) + (frequency_score * 0.4)
+
+                recommendations.append({
+                    "product_id": str(product.id),
+                    "product": product,
+                    "score": round(score, 4),
+                    "algorithm": "reorder_prediction",
+                    "reason": f"You've ordered this {row.order_count} times",
+                    "order_count": row.order_count,
+                    "last_order_days_ago": days_since_last,
+                    "avg_quantity": float(row.avg_quantity)
+                })
+
+        # Add explanations
+        rec_service = RecommendationService(db)
+        recommendations = rec_service.explainability_service.enhance_recommendations_with_explanations(
+            user_id=str(user_id),
+            recommendations=recommendations,
+            segment_name=None
+        )
+
+        return recommendations
+
+    except Exception as e:
+        logger.error(f"Error getting reorder predictions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recommendations/personalized-trending")
+async def get_personalized_trending(
+    limit: int = Query(default=10, ge=1, le=50),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """
+    Get personalized trending recommendations.
+
+    Returns trending products filtered by the user's preferred categories
+    and purchase history for a more relevant trending experience.
+    """
+    try:
+        from app.services.recommendation_service import RecommendationService
+        from sqlalchemy import text
+
+        if not current_user:
+            # Anonymous users get general trending
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        user_id = current_user.id
+
+        # Get user's preferred categories based on purchase history
+        category_query = text("""
+            SELECT p.category_id, COUNT(*) as purchase_count
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            JOIN products p ON oi.product_id = p.id
+            WHERE o.user_id = :user_id
+                AND o.status NOT IN ('cancelled', 'pending')
+            GROUP BY p.category_id
+            ORDER BY COUNT(*) DESC
+            LIMIT 3
+        """)
+
+        category_results = db.execute(category_query, {"user_id": user_id}).fetchall()
+        preferred_category_ids = [str(r.category_id) for r in category_results if r.category_id]
+
+        # Get trending products in user's preferred categories
+        if preferred_category_ids:
+            trending_query = text("""
+                WITH product_popularity AS (
+                    SELECT
+                        p.id as product_id,
+                        COUNT(DISTINCT oi.order_id) as order_count,
+                        COUNT(DISTINCT CASE
+                            WHEN o.created_at >= NOW() - INTERVAL '7 days'
+                            THEN oi.order_id
+                        END) as recent_orders
+                    FROM products p
+                    LEFT JOIN order_items oi ON p.id = oi.product_id
+                    LEFT JOIN orders o ON oi.order_id = o.id
+                        AND o.status NOT IN ('cancelled', 'pending')
+                    WHERE p.is_active = true
+                        AND p.stock_quantity > 0
+                        AND p.category_id = ANY(:category_ids)
+                    GROUP BY p.id
+                    HAVING COUNT(DISTINCT oi.order_id) > 0
+                )
+                SELECT
+                    product_id,
+                    (recent_orders * 2.0 + order_count) / 3.0 as popularity_score
+                FROM product_popularity
+                ORDER BY popularity_score DESC
+                LIMIT :limit
+            """)
+
+            results = db.execute(trending_query, {
+                "category_ids": preferred_category_ids,
+                "limit": limit
+            }).fetchall()
+        else:
+            # No purchase history, return general trending
+            rec_service = RecommendationService(db)
+            return await rec_service.get_trending_products(limit=limit)
+
+        # Enrich with product data
+        recommendations = []
+        max_score = max([float(r.popularity_score) for r in results]) if results else 1.0
+
+        for row in results:
+            product = db.query(Product).filter(Product.id == row.product_id).first()
+            if product:
+                score = float(row.popularity_score) / max_score if max_score > 0 else 0.5
+                recommendations.append({
+                    "product_id": str(product.id),
+                    "product": product,
+                    "score": round(score, 4),
+                    "algorithm": "personalized_trending",
+                    "reason": "Trending in categories you love"
+                })
+
+        # Add explanations
+        rec_service = RecommendationService(db)
+        recommendations = rec_service.explainability_service.enhance_recommendations_with_explanations(
+            user_id=str(user_id),
+            recommendations=recommendations,
+            segment_name=None
+        )
+
+        return recommendations
+
+    except Exception as e:
+        logger.error(f"Error getting personalized trending: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -552,79 +1054,98 @@ async def get_products_by_category(
     return products
 
 
-@router.get("/{product_id}", response_model=ProductResponse)
-async def get_product(
-    product_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional),
-):
-    """Get product by ID"""
-
-    product = (
-        db.query(Product)
-        .options(selectinload(Product.category))
-        .options(selectinload(Product.config))
-        .filter(Product.id == product_id)
-        .first()
-    )
-
-    if not product:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
-        )
-
-    if not product.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Product not available"
-        )
-
-    if current_user:
-        try:
-            behavior_service = UserBehaviorService(db)
-            behavior_service.track_product_view(str(current_user.id), str(product_id))
-        except Exception as e:
-            logger.error(f"Error tracking product view: {str(e)}")
-
-    return product
-
 
 @router.get("/{product_id}/similar", response_model=List[ProductResponse])
 async def get_similar_products(
     product_id: UUID, limit: int = Query(10, ge=1, le=20), db: Session = Depends(get_db)
 ):
-    """Get products similar to the given product"""
+    """
+    Get products similar to the given product using ML-based content similarity.
 
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
-        )
+    Uses embeddings and TF-IDF to find semantically similar products based on
+    product features, descriptions, and attributes.
+    """
+    try:
+        from app.services.ml_engine_service import MLEngineService
+        from app.services.ml.content_model_service import ContentModelService
 
-    similar_products = (
-        db.query(Product)
-        .filter(Product.category_id == product.category_id)
-        .filter(Product.id != product_id)
-        .filter(Product.is_active == True)
-        .filter(Product.in_stock == True)
-        .limit(limit)
-        .all()
-    )
+        # Verify product exists
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
+            )
 
-    if len(similar_products) < limit and product.brand:
-        brand_products = (
+        # Try ML-based similarity first
+        ml_engine = MLEngineService(db=db)
+        content_model = ml_engine.active_models.get("content")
+
+        similar_products = []
+
+        if content_model:
+            # Use ML content-based model for similarity
+            content_service = ContentModelService()
+            similar_product_ids = content_service.get_similar_products(
+                model_data=content_model,
+                product_ids=[product_id],
+                n_recommendations=limit
+            )
+
+            # Get product objects
+            for pid in similar_product_ids:
+                similar_product = db.query(Product).filter(
+                    Product.id == pid,
+                    Product.is_active == True,
+                    Product.in_stock == True
+                ).first()
+                if similar_product:
+                    similar_products.append(similar_product)
+
+        # Fallback to category/brand similarity if ML model not available or insufficient results
+        if len(similar_products) < limit:
+            logger.info(f"Using fallback similarity for product {product_id}")
+
+            category_products = (
+                db.query(Product)
+                .filter(Product.category_id == product.category_id)
+                .filter(Product.id != product_id)
+                .filter(Product.is_active == True)
+                .filter(Product.in_stock == True)
+                .filter(Product.id.notin_([p.id for p in similar_products]))
+                .limit(limit - len(similar_products))
+                .all()
+            )
+            similar_products.extend(category_products)
+
+            # Add brand-based if still not enough
+            if len(similar_products) < limit and product.brand:
+                brand_products = (
+                    db.query(Product)
+                    .filter(Product.brand == product.brand)
+                    .filter(Product.id != product_id)
+                    .filter(Product.is_active == True)
+                    .filter(Product.in_stock == True)
+                    .filter(Product.id.notin_([p.id for p in similar_products]))
+                    .limit(limit - len(similar_products))
+                    .all()
+                )
+                similar_products.extend(brand_products)
+
+        return similar_products[:limit]
+
+    except Exception as e:
+        logger.error(f"Error getting similar products: {e}", exc_info=True)
+        # Fallback to simple category-based similarity on error
+        similar_products = (
             db.query(Product)
-            .filter(Product.brand == product.brand)
+            .filter(Product.category_id == product.category_id)
             .filter(Product.id != product_id)
             .filter(Product.is_active == True)
             .filter(Product.in_stock == True)
-            .filter(Product.id.notin_([p.id for p in similar_products]))
-            .limit(limit - len(similar_products))
+            .limit(limit)
             .all()
         )
-
-        similar_products.extend(brand_products)
-
-    return similar_products
+        return similar_products
 
 
 @lru_cache(maxsize=50)
@@ -699,3 +1220,41 @@ async def log_search_click(
     search_service.log_search_click(str(search_id), str(product_id), position)
 
     return MessageResponse(message="Click logged successfully")
+
+
+@router.get("/{product_id}", response_model=ProductResponse)
+async def get_product(
+    product_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Get product by ID"""
+
+    product = (
+        db.query(Product)
+        .options(selectinload(Product.category))
+        .options(selectinload(Product.config))
+        .filter(Product.id == product_id)
+        .first()
+    )
+
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
+        )
+
+    if not product.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Product not available"
+        )
+
+    if current_user:
+        try:
+            behavior_service = UserBehaviorService(db)
+            behavior_service.track_product_view(str(current_user.id), str(product_id))
+        except Exception as e:
+            logger.error(f"Error tracking product view: {str(e)}")
+
+    return product
+
+

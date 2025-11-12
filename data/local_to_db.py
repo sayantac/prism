@@ -749,7 +749,7 @@ class CompleteEcomDataMigrator:
                     "id": user_id,
                     "username": username,
                     "email": email,
-                    "hashed_password": "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewAlDWVWGlhwDZZy",  # password123
+                    "hashed_password": "$2b$12$3CqmhFLIzV0zoR94ZYk4K.DY8mno6P2FVsJ5twcdrLT5u3q0Obq9y",  # password123
                     "first_name": first_name,
                     "last_name": last_name,
                     "is_active": True,

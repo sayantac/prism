@@ -36,12 +36,15 @@ from app.models.admin import (
     SystemSetting,
     SettingsChangeLog,
 )
+from app.models.product import Product, ProductCategory, ProductConfig
 from app.models.ml_models import (
     MLModelConfig,
     ModelTrainingHistory,
+    ModelVersion,
     UserSegment,
     UserSegmentMembership,
     RecommendationMetrics,
+    RecommendationResult,
     RecommendationConversion,
 )
 from app.models.marketing import AdBanner, PromotionalBanner
@@ -81,11 +84,17 @@ __all__ = [
     # ML models
     "MLModelConfig",
     "ModelTrainingHistory",
+    "ModelVersion",
     "UserSegment",
     "UserSegmentMembership",
     "RecommendationMetrics",
+    "RecommendationResult",
     "RecommendationConversion",
     # Marketing models
     "AdBanner",
     "PromotionalBanner",
+
+    "Product",
+    "ProductCategory",
+    "ProductConfig",
 ]

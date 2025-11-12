@@ -44,7 +44,8 @@ async def admin_list_user(
         query = query.filter(
             User.username.ilike(f"%{search}%")
             | User.email.ilike(f"%{search}%")
-            | User.full_name.ilike(f"%{search}%")
+            | User.first_name.ilike(f"%{search}%")
+            | User.last_name.ilike(f"%{search}%")
         )
 
     if is_active is not None:
@@ -91,7 +92,8 @@ async def admin_list_users(
             or_(
                 User.username.ilike(f"%{search}%"),
                 User.email.ilike(f"%{search}%"),
-                User.full_name.ilike(f"%{search}%"),
+                User.first_name.ilike(f"%{search}%"),
+                User.last_name.ilike(f"%{search}%"),
             )
         )
 

@@ -90,7 +90,7 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
 
     from datetime import datetime
 
-    user.last_active = datetime.utcnow()
+    user.last_login = datetime.utcnow()
     db.commit()
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

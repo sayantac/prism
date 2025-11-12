@@ -290,23 +290,7 @@ export const ProductDetail: React.FC = () => {
             </div>
           </section>
         )}
-      {relatedProducts && relatedProducts.length > 0 && (
-        <section className="py-8 bg-base-200">
-          <div className="container mx-auto px-2">
-            <div className="text-center mb-6  ">
-              <h2 className="text-2xl font-bold text-base-content mb-2">
-                Similar Products
-              </h2>
-            </div>
-            <RecommendationSection
-              title="Related Products"
-              products={relatedProducts}
-              limit={8}
-              isLoading={false}
-            />
-          </div>
-        </section>
-      )}
+      
       {relatedProducts && relatedProducts.length > 0 && (
         <section className="py-8 bg-base-100">
           <div className="container mx-auto px-2">
