@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, desc, distinct, func
+from sqlalchemy import Integer, and_, desc, distinct, func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -78,7 +78,7 @@ async def admin_dashboard_overview(
     total_searches = db.query(SearchAnalytics).count()
     searches_today = (
         db.query(SearchAnalytics)
-        .filter(func.date(SearchAnalytics.timestamp) == today)
+        .filter(func.date(SearchAnalytics.created_at) == today)
         .count()
     )
 
@@ -149,7 +149,7 @@ async def admin_user_behavior_summary(
 
     user_actions = (
         db.query(AuditLog.action, func.count(AuditLog.id).label("count"))
-        .filter(AuditLog.timestamp >= since_date)
+        .filter(AuditLog.created_at >= since_date)
         .group_by(AuditLog.action)
         .all()
     )
@@ -157,7 +157,7 @@ async def admin_user_behavior_summary(
     most_viewed = (
         db.query(AuditLog.entity_id, func.count(AuditLog.id).label("view_count"))
         .filter(AuditLog.action == "VIEW_PRODUCT")
-        .filter(AuditLog.timestamp >= since_date)
+        .filter(AuditLog.created_at >= since_date)
         .group_by(AuditLog.entity_id)
         .order_by(desc("view_count"))
         .limit(10)
@@ -180,7 +180,7 @@ async def admin_user_behavior_summary(
 
     active_users = (
         db.query(func.count(func.distinct(AuditLog.user_id)))
-        .filter(AuditLog.timestamp >= since_date)
+        .filter(AuditLog.created_at >= since_date)
         .scalar()
         or 0
     )
@@ -198,7 +198,7 @@ async def get_admin_dashboard_metrics(
     days: int = Query(30, ge=1, le=365, description="Number of days for metrics"),
     current_user: User = Depends(require_permission("analytics.view")),
     db: Session = Depends(get_db),
-) -> Dict[str, Any]:
+):
     """
     Get comprehensive admin dashboard metrics.
 
@@ -295,7 +295,7 @@ async def get_admin_dashboard_metrics(
             Product.name,
             Product.code,
             func.sum(OrderItem.quantity).label("quantity_sold"),
-            func.sum(OrderItem.quantity * OrderItem.price).label("revenue")
+            func.sum(OrderItem.quantity * OrderItem.unit_price).label("revenue")
         ).join(OrderItem).join(Order).filter(
             Order.created_at >= cutoff_date,
             Order.status.notin_(["cancelled", "refunded"])
@@ -368,46 +368,46 @@ async def get_admin_dashboard_metrics(
 
         clicked_recommendations = db.query(func.count(RecommendationResult.id)).filter(
             RecommendationResult.created_at >= cutoff_date,
-            RecommendationResult.interaction_type == "click"
+            RecommendationResult.recommendation_type == "click"
         ).scalar() or 0
 
         overall_click_rate = round((clicked_recommendations / total_recommendations) * 100, 2) if total_recommendations > 0 else 0.0
 
         converted_recommendations = db.query(func.count(RecommendationResult.id)).filter(
             RecommendationResult.created_at >= cutoff_date,
-            RecommendationResult.interaction_type == "purchase"
+            RecommendationResult.recommendation_type == "purchase"
         ).scalar() or 0
 
         overall_conversion_rate = round((converted_recommendations / total_recommendations) * 100, 2) if total_recommendations > 0 else 0.0
 
         # Algorithm performance
-        algorithms = db.query(distinct(RecommendationResult.algorithm_used)).filter(
+        algorithms = db.query(distinct(RecommendationResult.algorithm)).filter(
             RecommendationResult.created_at >= cutoff_date,
-            RecommendationResult.algorithm_used != None
+            RecommendationResult.algorithm != None
         ).all()
 
         algorithm_performance = []
         for (algo,) in algorithms:
             algo_total = db.query(func.count(RecommendationResult.id)).filter(
                 RecommendationResult.created_at >= cutoff_date,
-                RecommendationResult.algorithm_used == algo
+                RecommendationResult.algorithm == algo
             ).scalar() or 0
 
             algo_clicks = db.query(func.count(RecommendationResult.id)).filter(
                 RecommendationResult.created_at >= cutoff_date,
-                RecommendationResult.algorithm_used == algo,
-                RecommendationResult.interaction_type == "click"
+                RecommendationResult.algorithm == algo,
+                RecommendationResult.was_clicked == True
             ).scalar() or 0
 
             algo_conversions = db.query(func.count(RecommendationResult.id)).filter(
                 RecommendationResult.created_at >= cutoff_date,
-                RecommendationResult.algorithm_used == algo,
-                RecommendationResult.interaction_type == "purchase"
+                RecommendationResult.algorithm == algo,
+                RecommendationResult.was_purchased == True
             ).scalar() or 0
 
             algo_avg_score = db.query(func.avg(RecommendationResult.score)).filter(
                 RecommendationResult.created_at >= cutoff_date,
-                RecommendationResult.algorithm_used == algo,
+                RecommendationResult.algorithm == algo,
                 RecommendationResult.score != None
             ).scalar()
 
@@ -524,12 +524,12 @@ async def get_kpis(
 
         clicked_recs = db.query(func.count(RecommendationResult.id)).filter(
             RecommendationResult.created_at >= cutoff_date,
-            RecommendationResult.interaction_type == "click"
+            RecommendationResult.was_clicked == True
         ).scalar() or 0
 
         converted_recs = db.query(func.count(RecommendationResult.id)).filter(
             RecommendationResult.created_at >= cutoff_date,
-            RecommendationResult.interaction_type == "purchase"
+            RecommendationResult.was_purchased == True
         ).scalar() or 0
 
         recommendation_click_rate = round((clicked_recs / total_recs) * 100, 2) if total_recs > 0 else 0.0
@@ -539,13 +539,13 @@ async def get_kpis(
         def get_algorithm_performance(algorithm: str) -> float:
             algo_total = db.query(func.count(RecommendationResult.id)).filter(
                 RecommendationResult.created_at >= cutoff_date,
-                RecommendationResult.algorithm_used == algorithm
+                RecommendationResult.algorithm == algorithm
             ).scalar() or 0
 
             algo_clicks = db.query(func.count(RecommendationResult.id)).filter(
                 RecommendationResult.created_at >= cutoff_date,
-                RecommendationResult.algorithm_used == algorithm,
-                RecommendationResult.interaction_type == "click"
+                RecommendationResult.algorithm == algorithm,
+                RecommendationResult.was_clicked == True
             ).scalar() or 0
 
             return round((algo_clicks / algo_total) * 100, 2) if algo_total > 0 else 0.0
@@ -653,7 +653,7 @@ async def get_recommendation_performance(
         # Build base query
         query_filter = [RecommendationResult.created_at >= cutoff_date]
         if algorithm:
-            query_filter.append(RecommendationResult.algorithm_used == algorithm)
+            query_filter.append(RecommendationResult.algorithm == algorithm)
 
         # Total recommendations
         total_recommendations = db.query(func.count(RecommendationResult.id)).filter(
@@ -663,13 +663,13 @@ async def get_recommendation_performance(
         # Total clicks
         total_clicks = db.query(func.count(RecommendationResult.id)).filter(
             *query_filter,
-            RecommendationResult.interaction_type == "click"
+            RecommendationResult.was_clicked == True
         ).scalar() or 0
 
         # Total conversions
         total_conversions = db.query(func.count(RecommendationResult.id)).filter(
             *query_filter,
-            RecommendationResult.interaction_type == "purchase"
+            RecommendationResult.was_purchased == True
         ).scalar() or 0
 
         # Rates
@@ -697,11 +697,11 @@ async def get_recommendation_performance(
             day_recs = db.query(func.count(RecommendationResult.id)).filter(*day_filter).scalar() or 0
             day_clicks = db.query(func.count(RecommendationResult.id)).filter(
                 *day_filter,
-                RecommendationResult.interaction_type == "click"
+                RecommendationResult.was_clicked== True
             ).scalar() or 0
             day_conversions = db.query(func.count(RecommendationResult.id)).filter(
                 *day_filter,
-                RecommendationResult.interaction_type == "purchase"
+                RecommendationResult.was_purchased == True
             ).scalar() or 0
 
             performance_by_day.insert(0, {
@@ -716,8 +716,8 @@ async def get_recommendation_performance(
             RecommendationResult.product_id,
             Product.name,
             func.count(RecommendationResult.id).label("recommendations"),
-            func.sum(func.cast(RecommendationResult.interaction_type == "click", db.Integer)).label("clicks"),
-            func.sum(func.cast(RecommendationResult.interaction_type == "purchase", db.Integer)).label("conversions")
+            func.sum(func.cast(RecommendationResult.was_clicked == True, Integer)).label("clicks"),
+            func.sum(func.cast(RecommendationResult.was_purchased == True, Integer)).label("conversions")
         ).join(Product, Product.id == RecommendationResult.product_id).filter(
             *query_filter
         ).group_by(RecommendationResult.product_id, Product.name).order_by(

@@ -73,6 +73,19 @@ Create an engaging description (3-4 sentences) that highlights the benefits and 
 
 Generate a concise segment description (2-3 sentences) for marketing purposes."""
 
+    # Personalized ad copy generation
+    PERSONALIZED_AD_COPY = """Generate compelling promotional ad copy for:
+
+Target Segment: Cluster {cluster_id}
+Product Category: {product_category}
+{additional_context}
+
+Create engaging promotional text (3-4 sentences) that:
+1. Appeals to the target segment
+2. Highlights key benefits of the product category
+3. Includes a clear call-to-action
+4. Is persuasive and conversion-focused"""
+
 
 class LLMService:
     """
@@ -371,6 +384,58 @@ class LLMService:
         except Exception as e:
             logger.error(
                 f"Error generating segment description: {str(e)}", exc_info=True
+            )
+            return None
+
+    async def generate_personalized_ad_copy(
+        self,
+        cluster_id: int,
+        target_product_category: str,
+        additional_context: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Generate personalized promotional ad copy for a user segment.
+
+        Args:
+            cluster_id: User cluster/segment ID
+            target_product_category: Target product category for the promotion
+            additional_context: Optional additional context for the ad
+
+        Returns:
+            Generated ad copy string, or None if generation fails
+
+        Example:
+            >>> ad_copy = await llm_service.generate_personalized_ad_copy(
+            ...     cluster_id=5,
+            ...     target_product_category="Electronics",
+            ...     additional_context="Holiday sale, 20% off"
+            ... )
+        """
+        try:
+            # Format additional context
+            context_str = ""
+            if additional_context:
+                context_str = f"Additional Context: {additional_context}"
+
+            # Format prompt
+            prompt = PromptTemplate.PERSONALIZED_AD_COPY.value.format(
+                cluster_id=cluster_id,
+                product_category=target_product_category,
+                additional_context=context_str,
+            )
+
+            # Generate ad copy
+            ad_copy = await self.generate_text(
+                prompt=prompt,
+                max_tokens=300,
+                temperature=0.8,  # More creative for marketing copy
+            )
+
+            return ad_copy
+
+        except Exception as e:
+            logger.error(
+                f"Error generating personalized ad copy: {str(e)}", exc_info=True
             )
             return None
 

@@ -11,6 +11,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_superuser as get_current_active_superuser, get_db
@@ -638,4 +639,403 @@ async def get_cache_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting cache status: {str(e)}"
+        )
+
+
+# ==================== ML Config Management (Issues.md spec) ====================
+
+class MLConfigCreateRequest(BaseModel):
+    name: str = Field(..., description="Model configuration name")
+    model_type: str = Field(..., description="Type of model (collaborative, content_based, etc.)")
+    description: Optional[str] = Field(None, description="Description of the configuration")
+    parameters: dict = Field(..., description="Model hyperparameters")
+
+
+class MLConfigUpdateRequest(BaseModel):
+    parameters: Optional[dict] = Field(None, description="Updated hyperparameters")
+    description: Optional[str] = Field(None, description="Updated description")
+
+
+class TrainRequest(BaseModel):
+    retrain_all: bool = Field(False, description="Whether to retrain all models")
+    specific_models: Optional[List[str]] = Field(None, description="List of specific model names to train")
+
+
+@router.get("/ml-config/")
+async def get_ml_model_configurations(
+    current_user: User = Depends(get_current_active_superuser),
+    db: Session = Depends(get_db),
+):
+    """
+    Get all ML model configurations.
+
+    Returns list of all configured ML models with their parameters, accuracy scores,
+    and training metadata.
+
+    **Required Permission:** `system.ml_models`
+    """
+    try:
+        configs = db.query(MLModelConfig).all()
+
+        result = []
+        for config in configs:
+            result.append({
+                "id": str(config.id),
+                "name": config.name,
+                "model_type": config.model_type,
+                "description": config.description,
+                "is_active": config.is_active,
+                "accuracy_score": float(config.accuracy_score) if config.accuracy_score else None,
+                "precision_score": float(config.precision_score) if config.precision_score else None,
+                "recall_score": float(config.recall_score) if config.recall_score else None,
+                "last_trained": config.last_trained.isoformat() + "Z" if config.last_trained else None,
+                "parameters": config.parameters or {}
+            })
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting ML configs: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve ML configurations"
+        )
+
+
+@router.post("/ml-config/")
+async def create_ml_model_configuration(
+    request: MLConfigCreateRequest,
+    current_user: User = Depends(get_current_active_superuser),
+    db: Session = Depends(get_db),
+):
+    """
+    Create a new ML model configuration.
+
+    Creates a new model configuration with specified hyperparameters.
+
+    **Required Permission:** `system.ml_models`
+    """
+    try:
+        from uuid import uuid4
+
+        new_config = MLModelConfig(
+            id=uuid4(),
+            name=request.name,
+            model_type=request.model_type,
+            description=request.description,
+            parameters=request.parameters,
+            is_active=False,  # New configs start inactive
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+
+        db.add(new_config)
+        db.commit()
+        db.refresh(new_config)
+
+        logger.info(f"Created ML config: {new_config.name} (ID: {new_config.id})")
+
+        return {
+            "id": str(new_config.id),
+            "name": new_config.name,
+            "model_type": new_config.model_type,
+            "description": new_config.description,
+            "is_active": new_config.is_active,
+            "parameters": new_config.parameters,
+            "created_at": new_config.created_at.isoformat() + "Z"
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating ML config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create ML configuration"
+        )
+
+
+@router.put("/ml-config/{config_id}")
+async def update_ml_model_configuration(
+    config_id: str,
+    request: MLConfigUpdateRequest,
+    current_user: User = Depends(get_current_active_superuser),
+    db: Session = Depends(get_db),
+):
+    """
+    Update an existing ML model configuration.
+
+    Updates hyperparameters or description of an existing configuration.
+
+    **Required Permission:** `system.ml_models`
+    """
+    try:
+        from uuid import UUID
+
+        config = db.query(MLModelConfig).filter(
+            MLModelConfig.id == UUID(config_id)
+        ).first()
+
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Configuration not found: {config_id}"
+            )
+
+        # Update fields
+        if request.parameters is not None:
+            config.parameters = request.parameters
+        if request.description is not None:
+            config.description = request.description
+
+        config.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(config)
+
+        logger.info(f"Updated ML config: {config.name} (ID: {config_id})")
+
+        return {
+            "id": str(config.id),
+            "name": config.name,
+            "model_type": config.model_type,
+            "description": config.description,
+            "parameters": config.parameters,
+            "updated_at": config.updated_at.isoformat() + "Z"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating ML config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update ML configuration"
+        )
+
+
+@router.post("/ml-config/{config_id}/activate")
+async def activate_ml_model_configuration(
+    config_id: str,
+    current_user: User = Depends(get_current_active_superuser),
+    db: Session = Depends(get_db),
+):
+    """
+    Activate an ML model configuration.
+
+    Sets the specified configuration as active for its model type.
+    Deactivates other configurations of the same type.
+
+    **Required Permission:** `system.ml_models`
+    """
+    try:
+        from uuid import UUID
+
+        config = db.query(MLModelConfig).filter(
+            MLModelConfig.id == UUID(config_id)
+        ).first()
+
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Configuration not found: {config_id}"
+            )
+
+        # Deactivate other configs of same type
+        db.query(MLModelConfig).filter(
+            MLModelConfig.model_type == config.model_type,
+            MLModelConfig.id != UUID(config_id)
+        ).update({"is_active": False})
+
+        # Activate this config
+        config.is_active = True
+        config.updated_at = datetime.utcnow()
+
+        db.commit()
+
+        logger.info(f"Activated ML config: {config.name} (ID: {config_id})")
+
+        return {
+            "message": "Configuration activated successfully",
+            "config_id": str(config.id),
+            "name": config.name,
+            "model_type": config.model_type
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error activating ML config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to activate ML configuration"
+        )
+
+
+@router.get("/ml-config/{config_id}/performance")
+async def get_model_performance_metrics(
+    config_id: str,
+    current_user: User = Depends(get_current_active_superuser),
+    db: Session = Depends(get_db),
+):
+    """
+    Get performance metrics for a model configuration.
+
+    Returns accuracy scores, training history, and recommendation performance
+    for the specified configuration.
+
+    **Required Permission:** `system.ml_models`
+    """
+    try:
+        config = db.query(MLModelConfig).filter(
+            MLModelConfig.id == UUID(config_id)
+        ).first()
+
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Configuration not found: {config_id}"
+            )
+
+        # Get training history
+        training_history = db.query(ModelTrainingHistory).filter(
+            ModelTrainingHistory.model_config_id == UUID(config_id)
+        ).order_by(desc(ModelTrainingHistory.started_at)).limit(10).all()
+
+        # Calculate average accuracy
+        accuracy_scores = [h.training_metrics.get("accuracy_score") for h in training_history
+                          if h.training_metrics and h.training_metrics.get("accuracy_score")]
+        average_accuracy = sum(accuracy_scores) / len(accuracy_scores) if accuracy_scores else 0.0
+
+        # Get recommendation performance (if applicable)
+        from app.models import RecommendationResult
+        from datetime import timedelta
+
+        cutoff_date = datetime.utcnow() - timedelta(days=30)
+
+        total_recs = db.query(func.count(RecommendationResult.id)).filter(
+            RecommendationResult.algorithm_used == config.model_type,
+            RecommendationResult.created_at >= cutoff_date
+        ).scalar() or 0
+
+        clicks = db.query(func.count(RecommendationResult.id)).filter(
+            RecommendationResult.algorithm_used == config.model_type,
+            RecommendationResult.created_at >= cutoff_date,
+            RecommendationResult.was_clicked== True
+        ).scalar() or 0
+
+        conversions = db.query(func.count(RecommendationResult.id)).filter(
+            RecommendationResult.algorithm_used == config.model_type,
+            RecommendationResult.created_at >= cutoff_date,
+            RecommendationResult.was_purchased == True
+        ).scalar() or 0
+
+        avg_score = db.query(func.avg(RecommendationResult.score)).filter(
+            RecommendationResult.algorithm_used == config.model_type,
+            RecommendationResult.created_at >= cutoff_date,
+            RecommendationResult.score != None
+        ).scalar()
+
+        recommendation_performance = {
+            "total_recommendations": total_recs,
+            "click_rate": round((clicks / total_recs) * 100, 2) if total_recs > 0 else 0.0,
+            "conversion_rate": round((conversions / total_recs) * 100, 2) if total_recs > 0 else 0.0,
+            "average_score": round(float(avg_score), 2) if avg_score else 0.0
+        }
+
+        # Format training history
+        history_data = []
+        for h in training_history:
+            history_data.append({
+                "started_at": h.started_at.isoformat() + "Z" if h.started_at else None,
+                "completed_at": h.completed_at.isoformat() + "Z" if h.completed_at else None,
+                "accuracy_score": h.training_metrics.get("accuracy_score") if h.training_metrics else None,
+                "status": h.training_status
+            })
+
+        return {
+            "config_id": str(config.id),
+            "model_type": config.model_type,
+            "accuracy_score": float(config.accuracy_score) if config.accuracy_score else None,
+            "average_accuracy": round(average_accuracy, 4),
+            "training_count": len(training_history),
+            "last_trained": config.last_trained.isoformat() + "Z" if config.last_trained else None,
+            "recommendation_performance": recommendation_performance,
+            "training_history": history_data
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting model performance: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve model performance"
+        )
+
+
+@router.post("/ml-config/train")
+async def train_ml_models(
+    request: TrainRequest,
+    current_user: User = Depends(get_current_active_superuser),
+    db: Session = Depends(get_db),
+):
+    """
+    Train ML models.
+
+    Triggers training for all models or specific models based on request.
+
+    **Required Permission:** `system.ml_models`
+    """
+    try:
+        from app.services.recommendation_engine_service import RecommendationEngineService
+
+        rec_service = RecommendationEngineService(db)
+        training_results = []
+
+        if request.retrain_all:
+            # Train all model types
+            model_types = ["als", "content", "kmeans", "lightgbm", "fbt"]
+            for model_type in model_types:
+                result = rec_service.trigger_model_training(model_type)
+                if result.get("success"):
+                    training_results.append({
+                        "model_type": model_type,
+                        "training_id": result["training_id"],
+                        "status": "started"
+                    })
+        elif request.specific_models:
+            # Train specific models
+            for model_name in request.specific_models:
+                # Get config by name
+                config = db.query(MLModelConfig).filter(
+                    MLModelConfig.name == model_name
+                ).first()
+
+                if config:
+                    result = rec_service.trigger_model_training(config.model_type)
+                    if result.get("success"):
+                        training_results.append({
+                            "model_name": model_name,
+                            "model_type": config.model_type,
+                            "training_id": result["training_id"],
+                            "status": "started"
+                        })
+
+        from datetime import timedelta
+        estimated_completion = datetime.utcnow() + timedelta(minutes=30)
+
+        return {
+            "training_id": f"train_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+            "status": "started",
+            "models_training": training_results,
+            "estimated_completion": estimated_completion.isoformat() + "Z"
+        }
+
+    except Exception as e:
+        logger.error(f"Error training models: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to start model training"
         )
