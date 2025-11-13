@@ -1,12 +1,12 @@
 import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+    Area,
+    AreaChart,
+    CartesianGrid,
+    Legend,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from "recharts";
 
 interface RevenueChartProps {
@@ -22,23 +22,11 @@ interface RevenueChartProps {
 
 export const RevenueChart: React.FC<RevenueChartProps> = ({
   data,
-  timeRange = "30d",
+  // Removed unused timeRange prop
   className = "",
 }) => {
-  // Mock data if none provided
-  const mockData = Array.from({ length: 30 }, (_, i) => ({
-    date: new Date(
-      Date.now() - (29 - i) * 24 * 60 * 60 * 1000
-    ).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    }),
-    revenue: Math.floor(Math.random() * 5000 + 2000),
-    orders: Math.floor(Math.random() * 50 + 20),
-    previousRevenue: Math.floor(Math.random() * 4500 + 1800),
-  }));
-
-  const chartData = data || mockData;
+  // Use real API data, fallback to empty array
+  const chartData = Array.isArray(data) ? data : [];
 
   const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
 

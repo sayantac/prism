@@ -25,7 +25,7 @@ def setup_logging():
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
-    if settings.LOG_FILE:
+    if True:
         file_handler = logging.handlers.RotatingFileHandler(
             settings.LOG_FILE,
             maxBytes=10 * 1024 * 1024,

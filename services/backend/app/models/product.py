@@ -106,6 +106,9 @@ class Product(Base):
     )
     recommendations = relationship("RecommendationResult", back_populates="product")
 
+    class Config:
+        orm_mode = True
+
     __table_args__ = (
         Index(
             "ix_products_embedding_cosine",
@@ -116,6 +119,7 @@ class Product(Base):
         Index("ix_products_brand_category", "brand", "category_id"),
         Index("ix_products_price_active", "price", "is_active"),
     )
+
 
 
 class ProductConfig(Base):

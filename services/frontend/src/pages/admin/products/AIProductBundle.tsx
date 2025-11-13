@@ -223,7 +223,7 @@ const allProducts: Product[] = [
   },
 ];
 
-const BANNER_API_ENDPOINT = "http://localhost:8001/generate-banner";
+const BANNER_API_ENDPOINT = "http://localhost:8000/recommendations/generate-banner";
 
 function ProductBundleApp() {
   const [selectedCluster, setSelectedCluster] = useState<UserCluster | null>(
@@ -250,7 +250,7 @@ function ProductBundleApp() {
     if (discount <= 0 || discount >= 100) return bundleTotalPrice;
     return bundleTotalPrice * (1 - discount / 100);
   }, [bundleTotalPrice, discount]);
-
+ 
   const isPreviewReady =
     bundleName && selectedProducts.length > 0 && selectedCluster;
 
@@ -395,7 +395,7 @@ function ProductBundleApp() {
                     </div>
                     <div className="stat-title">Avg Order Value</div>
                     <div className="stat-value">
-                      ${selectedCluster.avg_order_value.toFixed(2)}
+                      ${selectedCluster.avg_order_value?.toFixed(2)}
                     </div>
                   </div>
                   <div className="stat">
@@ -482,7 +482,7 @@ function ProductBundleApp() {
                             {product.brand_name}
                           </p>
                           <p className="font-bold text-lg text-secondary">
-                            ${product.selling_price.toFixed(2)}
+                            ${product.selling_price?.toFixed(2)}
                           </p>
                         </div>
                       </div>
@@ -659,7 +659,7 @@ function ProductBundleApp() {
                           </div>
                         </div>
                         <span className="font-semibold text-base">
-                          ${product.selling_price.toFixed(2)}
+                          ${product.selling_price?.toFixed(2)}
                         </span>
                       </div>
                     ))}
@@ -670,7 +670,7 @@ function ProductBundleApp() {
                   <div className="flex justify-between items-baseline">
                     <span className="text-lg opacity-60">Total Value</span>
                     <del className="text-xl opacity-60">
-                      ${bundleTotalPrice.toFixed(2)}
+                      ${bundleTotalPrice?.toFixed(2)}
                     </del>
                   </div>
                   <div className="flex justify-between items-center">
@@ -679,7 +679,7 @@ function ProductBundleApp() {
                     </span>
                     <div className="text-right">
                       <p className="text-4xl font-black text-accent">
-                        ${offerPrice.toFixed(2)}
+                        ${offerPrice?.toFixed(2)}
                       </p>
                       <span className="badge badge-accent badge-outline font-bold">
                         You Save {discount}%

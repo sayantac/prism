@@ -179,7 +179,7 @@ async def get_dashboard_trends(
     days: int = Query(7, ge=1, le=30, description="Number of days to analyze"),
     metric: str = Query(
         "revenue",
-        regex="^(revenue|orders|users|searches)$",
+        pattern="^(revenue|orders|users|searches)$",
         description="Metric to trend",
     ),
     current_user: User = Depends(require_permission("admin_dashboard")),

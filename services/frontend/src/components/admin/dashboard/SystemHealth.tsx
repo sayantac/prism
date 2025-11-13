@@ -6,12 +6,15 @@ import {
   Server,
   Wifi,
 } from "lucide-react";
-import { useGetSystemStatusQuery } from "@/store/api/adminApi";
+import { useGetSystemHealthQuery } from "@/store/api/adminApi";
 
 export const SystemHealth: React.FC = () => {
-  const { data: health, isLoading } = useGetSystemStatusQuery(undefined, {
-    pollingInterval: 60000, // Poll every minute
-  });
+  const { data: health, isLoading, error, refetch } = useGetSystemHealthQuery(
+    undefined,
+    {
+      pollingInterval: 60000, // Poll every minute
+    }
+  );
 
   console.log("SystemHealth component - health data:", health);
 
@@ -19,26 +22,32 @@ export const SystemHealth: React.FC = () => {
     return <div className="skeleton h-64 w-full"></div>;
   }
 
-  const healthIndicators = [
-    {
-      name: "API Server",
-      status: health?.api_status || "unknown",
-      responseTime: health?.api_response_time || 0,
-      icon: Server,
-    },
-    {
-      name: "Database",
-      status: health?.database_status || "unknown",
-      responseTime: health?.database_response_time || 0,
-      icon: Database,
-    },
-    {
-      name: "Network",
-      status: health?.network_status || "unknown",
-      responseTime: health?.network_response_time || 0,
-      icon: Wifi,
-    },
-  ];
+  if (error) {
+    return (
+      <div className="bg-error/10 border border-error/20 rounded-lg p-6">
+        <div className="flex items-center gap-2 text-error mb-4">
+          <AlertTriangle className="w-5 h-5" />
+          <span>Failed to load system health</span>
+        </div>
+        <button onClick={refetch} className="btn btn-error btn-sm">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const healthData = health?.data || {};
+  const components = healthData.components || {};
+
+  const healthIndicators = Object.entries(components).map(
+    ([name, component]: [string, any]) => ({
+      name: name.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+      status: component.status,
+      responseTime: component.response_time_ms || 0,
+      message: component.message,
+      icon: name === "database" ? Database : name === "api" ? Server : Wifi,
+    })
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {

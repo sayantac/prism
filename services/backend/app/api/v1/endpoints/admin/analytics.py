@@ -145,8 +145,23 @@ async def admin_user_behavior_summary(
 ):
     """Admin: Get user behavior analytics summary"""
 
-    since_date = datetime.utcnow() - timedelta(days=days)
+    # use timezone-aware UTC datetimes
+    from datetime import timezone
 
+    since_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # mark dependency as used to satisfy linters while still enforcing permission
+    _ = current_user
+
+    most_viewed = (
+        db.query(AuditLog.resource_id, func.count(AuditLog.id).label("view_count"))
+        .filter(AuditLog.action == "VIEW_PRODUCT")
+        .filter(AuditLog.created_at >= since_date)
+        .group_by(AuditLog.resource_id)
+        .order_by(desc("view_count"))
+        .limit(10)
+        .all()
+    )
     user_actions = (
         db.query(AuditLog.action, func.count(AuditLog.id).label("count"))
         .filter(AuditLog.created_at >= since_date)
@@ -154,19 +169,11 @@ async def admin_user_behavior_summary(
         .all()
     )
 
-    most_viewed = (
-        db.query(AuditLog.entity_id, func.count(AuditLog.id).label("view_count"))
-        .filter(AuditLog.action == "VIEW_PRODUCT")
-        .filter(AuditLog.created_at >= since_date)
-        .group_by(AuditLog.entity_id)
-        .order_by(desc("view_count"))
-        .limit(10)
-        .all()
-    )
 
     most_viewed_products = []
-    for view_data in most_viewed:
-        product = db.query(Product).filter(Product.id == view_data.entity_id).first()
+    # destructure query rows to ensure we use plain values (avoid passing property objects to filters)
+    for entity_id, view_count in most_viewed:
+        product = db.query(Product).filter(Product.id == entity_id).first()
 
         if product:
             most_viewed_products.append(
@@ -174,7 +181,7 @@ async def admin_user_behavior_summary(
                     "product_id": str(product.id),
                     "name": product.name,
                     "brand": product.brand,
-                    "view_count": view_data.view_count,
+                    "view_count": view_count,
                 }
             )
 

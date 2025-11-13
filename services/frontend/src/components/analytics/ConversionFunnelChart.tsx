@@ -1,10 +1,10 @@
 import {
-  Cell,
-  Funnel,
-  FunnelChart,
-  LabelList,
-  ResponsiveContainer,
-  Tooltip,
+    Cell,
+    Funnel,
+    FunnelChart,
+    LabelList,
+    ResponsiveContainer,
+    Tooltip,
 } from "recharts";
 
 interface ConversionFunnelChartProps {
@@ -20,15 +20,8 @@ export const ConversionFunnelChart: React.FC<ConversionFunnelChartProps> = ({
   data,
   className = "",
 }) => {
-  const mockData = [
-    { name: "Website Visits", value: 10000, fill: "hsl(var(--pr))" },
-    { name: "Product Views", value: 4500, fill: "hsl(var(--in))" },
-    { name: "Add to Cart", value: 1200, fill: "hsl(var(--wa))" },
-    { name: "Checkout Started", value: 800, fill: "hsl(var(--er))" },
-    { name: "Orders Completed", value: 600, fill: "hsl(var(--su))" },
-  ];
-
-  const chartData = data || mockData;
+  // Use real API data, fallback to empty array
+  const chartData = Array.isArray(data) ? data : [];
 
   return (
     <div className={`w-full ${className}`}>

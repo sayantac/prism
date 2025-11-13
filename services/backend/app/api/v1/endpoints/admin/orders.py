@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 async def admin_list_orders(
     pagination: PaginationParams = Depends(get_pagination_params),
     status_filter: Optional[str] = Query(
-        None, regex="^(pending|confirmed|shipped|delivered|cancelled)$"
+        None, pattern="^(pending|confirmed|shipped|delivered|cancelled)$"
     ),
     user_id: Optional[UUID] = Query(None),
     start_date: Optional[datetime] = Query(None),

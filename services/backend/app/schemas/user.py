@@ -17,7 +17,7 @@ class UserBase(BaseSchema):
     email: EmailStr
     first_name: str | None = None
     last_name: str | None = None
-    locale: str = "en"
+    # locale: str = "en"
     interests: List[str] | None = []
     preferences: Dict[str, Any] | None = {}
     address: Dict[str, Any] | None = {}
@@ -37,7 +37,7 @@ class UserUpdate(BaseSchema):
     phone: str | None = None
     first_name: str | None = None
     last_name: str | None = None
-    locale: str | None = None
+    # locale: str | None = None
     interests: List[str] | None = None
     preferences: Dict[str, Any] | None = None
     address: Dict[str, Any] | None = None

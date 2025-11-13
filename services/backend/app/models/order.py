@@ -57,6 +57,7 @@ class Order(Base):
 
     created_at = Column(DateTime(timezone=False), server_default=func.now())
     updated_at = Column(DateTime(timezone=False), server_default=func.now(), onupdate=func.now())
+    
 
     # Relationships
     user = relationship("User", back_populates="orders")

@@ -62,15 +62,15 @@ export const productApi = apiSlice.injectEndpoints({
       transformErrorResponse,
     }),
 
-    // Search products with filters
+    // Search products with filters (Advanced search endpoint)
     searchProducts: builder.query<PaginatedResponse<Product>, SearchParams>({
-      query: (params) => buildQueryWithParams("/products/search", params),
+      query: (params) => buildQueryWithParams("/search/", params),
       transformResponse: (response: SearchResponse<Product>): PaginatedResponse<Product> => ({
-        items: response.products,
-        total: response.total,
-        page: response.page,
-        pages: response.pages,
-        limit: response.size,
+        items: response.products || [],
+        total: response.total_count || response.total || 0,
+        page: response.page || 1,
+        pages: response.total_pages || response.pages || 1,
+        limit: response.page_size || response.size || 20,
       }),
       providesTags: (result) => providesList(result, "Product"),
       transformErrorResponse,

@@ -18,18 +18,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # Prevent MIME type sniffing
-        response.headers["X-Content-Type-Options"] = "nosniff"
+        # response.headers["X-Content-Type-Options"] = "nosniff"
         
         # Prevent clickjacking
-        response.headers["X-Frame-Options"] = "DENY"
+        # response.headers["X-Frame-Options"] = "DENY"
         
         # Enable XSS protection
-        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # response.headers["X-XSS-Protection"] = "1; mode=block"
         
         # Force HTTPS (only in production)
-        response.headers["Strict-Transport-Security"] = (
-            "max-age=31536000; includeSubDomains"
-        )
+        # response.headers["Strict-Transport-Security"] = (
+        #     "max-age=31536000; includeSubDomains"
+        # )
         
         # Control referrer information
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -37,10 +37,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Content Security Policy
         csp = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https:; "
-            "font-src 'self' data:; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "img-src 'self' data: https://cdn.jsdelivr.net; "
+            "font-src 'self' https://cdn.jsdelivr.net; "
             "connect-src 'self' https: wss:; "
             "frame-ancestors 'none';"
         )

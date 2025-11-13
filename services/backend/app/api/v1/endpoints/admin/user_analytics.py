@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class EventTrackingRequest(BaseModel):
     user_id: Optional[str] = None
     session_id: str
-    event_type: str = Field(..., regex="^[a-zA-Z_]+$")
+    event_type: str = Field(..., pattern="^[a-zA-Z_]+$")
     event_data: Dict[str, Any] = Field(default_factory=dict)
     request_info: Optional[Dict[str, Any]] = None
 
@@ -58,7 +58,7 @@ async def track_user_event(
 
 @router.get("/cohort-analysis")
 async def get_cohort_analysis(
-    cohort_period: str = Query("monthly", regex="^(monthly|weekly)$"),
+    cohort_period: str = Query("monthly", pattern="^(monthly|weekly)$"),
     months_back: int = Query(12, ge=1, le=24),
     current_user: User = Depends(require_permission("view_user_analytics")),
     db: Session = Depends(get_db),

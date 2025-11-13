@@ -1,12 +1,12 @@
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Legend,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from "recharts";
 
 interface UserActivityChartProps {
@@ -23,19 +23,8 @@ export const UserActivityChart: React.FC<UserActivityChartProps> = ({
   data,
   className = "",
 }) => {
-  // Mock data if none provided
-  const mockData = Array.from({ length: 14 }, (_, i) => ({
-    date: new Date(
-      Date.now() - (13 - i) * 24 * 60 * 60 * 1000
-    ).toLocaleDateString("en-US", {
-      weekday: "short",
-    }),
-    activeUsers: Math.floor(Math.random() * 200 + 100),
-    newUsers: Math.floor(Math.random() * 50 + 10),
-    returningUsers: Math.floor(Math.random() * 150 + 90),
-  }));
-
-  const chartData = data || mockData;
+  // Use real API data, fallback to empty array
+  const chartData = Array.isArray(data) ? data : [];
 
   return (
     <div className={`w-full ${className}`}>

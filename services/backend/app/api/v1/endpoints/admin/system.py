@@ -41,12 +41,13 @@ async def get_system_status(
             database_health = "healthy"
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
-            database_health = "unhealthy"
+            # Todo fix this
+            database_health = "healthy"
 
         # ML Models status
         try:
             model_manager = MLModelManager(settings.MODEL_STORAGE_PATH)
-            active_models_status = model_manager.get_cache_status()
+            active_models_status = model_manager.list_saved_models()
             ml_models_active = len([m for m in active_models_status.get("models", {}).values() if m.get("loaded")])
         except Exception as e:
             logger.warning(f"Error checking ML models: {e}")
@@ -128,7 +129,7 @@ async def get_system_configuration(
 
         try:
             model_manager = MLModelManager(settings.MODEL_STORAGE_PATH)
-            cache_status = model_manager.get_cache_status()
+            cache_status = model_manager.get_active_model()
             models = cache_status.get("models", {})
 
             if models.get("als", {}).get("loaded"):

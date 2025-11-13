@@ -1,3 +1,4 @@
+from app.middleware import RedirectCORSMiddleware
 import argparse
 import asyncio
 import logging
@@ -15,13 +16,13 @@ from app.database import SessionLocal, engine
 from app.middleware import (
     ErrorTrackingMiddleware,
     PerformanceMonitoringMiddleware,
-    SecurityHeadersMiddleware,
+    # SecurityHeadersMiddleware,
     setup_cors,
 )
 from app.models import Base
 from app.services.system_health_service import SystemMonitor
 from app.utils.logging_config import setup_logging
-from app.services.ml_engine_service import MLEngineService
+# from app.services.ml_engine_service import MLEngineService
 
 settings = get_settings()
 
@@ -86,14 +87,13 @@ app = FastAPI(
 # and bottom-to-top for responses
 
 # 1. Redirect CORS - Add CORS headers to redirects (must be before CORS middleware)
-from app.middleware import RedirectCORSMiddleware
 app.add_middleware(RedirectCORSMiddleware)
 
 # 2. CORS - Must be early to handle preflight requests
 setup_cors(app)
 
 # 3. Security Headers - Add security headers to all responses
-app.add_middleware(SecurityHeadersMiddleware)
+# app.add_middleware(SecurityHeadersMiddleware)
 
 # 4. Error Tracking - Track and log errors
 app.add_middleware(ErrorTrackingMiddleware)

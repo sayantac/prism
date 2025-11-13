@@ -1,13 +1,15 @@
-import { TrendingDown, TrendingUp } from "lucide-react";
+import { TrendingDown, TrendingUp, RefreshCw } from "lucide-react";
 import { AdminDashboard as AD } from "../../../components/analytics/EnhancedCharts";
 import { Loading } from "../../../components/ui/Loading";
+
+import { UserBehaviorSummary } from "../../../components/admin/dashboard/UserBehaviorSummary";
 import {
   useGetAdminDashboardQuery,
   useGetKpisQuery,
   useGetMlConfigsQuery,
   useGetRecommendationPerformanceQuery,
   useGetSegmentPerformanceQuery,
-  useGetSystemConfigQuery,
+  useGetRealTimeStatsQuery ,
   useGetSystemStatusQuery,
   useGetUserSegmentsQuery,
 } from "../../../store/api/adminApi";
@@ -96,7 +98,7 @@ export const AdminDashboard: React.FC = () => {
   const { data: systemStatus } = useGetSystemStatusQuery({});
 
   // Fetch system configuration
-  const { data: systemConfig } = useGetSystemConfigQuery({});
+  const { data: systemConfig } = useGetRealTimeStatsQuery({});
 
   // Log data for debugging
   console.log("useGetAdminDashboardQuery: ", dashboardData);
@@ -109,7 +111,7 @@ export const AdminDashboard: React.FC = () => {
   console.log("useGetUserSegmentsQuery: ", userSegments);
   console.log("useGetMlConfigsQuery: ", mlConfigs);
   console.log("useGetSystemStatusQuery: ", systemStatus);
-  console.log("useGetSystemConfigQuery: ", systemConfig);
+  console.log("useGetRealTimeStatsQuery: ", systemConfig);
 
   if (isLoading) {
     return (
@@ -122,7 +124,24 @@ export const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-base-content">Admin Dashboard</h1>
+          <p className="text-base-content/70 mt-1">Monitor system performance and key metrics</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => window.location.reload()}
+            className="btn btn-outline btn-primary"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </button>
+        </div>
+      </div>
 
+
+      {/* Legacy Dashboard as fallback */}
       <AD />
     </div>
   );

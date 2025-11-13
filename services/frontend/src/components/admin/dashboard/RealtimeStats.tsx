@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Activity, Eye, ShoppingBag, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useGetRealTimeMetricsQuery } from "@/store/api/adminApi";
+import { useGetRealTimeStatsQuery } from "@/store/api/adminApi";
 import { MetricCard } from "../../admin/ui/MetricCard";
 
 export const RealtimeStats: React.FC = () => {
@@ -9,7 +9,7 @@ export const RealtimeStats: React.FC = () => {
     data: stats,
     isLoading,
     refetch,
-  } = useGetRealTimeMetricsQuery(undefined, {
+  } = useGetRealTimeStatsQuery(undefined, {
     pollingInterval: 30000, // Poll every 30 seconds
   });
 
@@ -26,28 +26,27 @@ export const RealtimeStats: React.FC = () => {
 
   const realTimeMetrics = [
     {
-      title: "Active Users",
-      value: stats?.active_users || 0,
-      icon: <Users className="w-6 h-6 text-blue-600" />,
-      change: stats?.active_users_change,
-    },
-    {
-      title: "Page Views",
-      value: stats?.page_views_today || 0,
-      icon: <Eye className="w-6 h-6 text-green-600" />,
-      change: stats?.page_views_change,
-    },
-    {
-      title: "Current Sessions",
-      value: stats?.current_sessions || 0,
-      icon: <Activity className="w-6 h-6 text-purple-600" />,
-      change: stats?.sessions_change,
+      title: "Revenue Today",
+      value: stats?.data?.revenue?.today || 0,
+      icon: <Activity className="w-6 h-6 text-green-600" />,
+      change: stats?.data?.revenue?.growth_rate,
+      format: "currency",
     },
     {
       title: "Orders Today",
-      value: stats?.orders_today || 0,
-      icon: <ShoppingBag className="w-6 h-6 text-orange-600" />,
-      change: stats?.orders_change,
+      value: stats?.data?.orders?.today || 0,
+      icon: <ShoppingBag className="w-6 h-6 text-blue-600" />,
+      change: stats?.data?.orders?.growth_rate,
+    },
+    {
+      title: "Active Users (24h)",
+      value: stats?.data?.users?.active_24h || 0,
+      icon: <Users className="w-6 h-6 text-purple-600" />,
+    },
+    {
+      title: "New Users Today",
+      value: stats?.data?.users?.new_today || 0,
+      icon: <Eye className="w-6 h-6 text-orange-600" />,
     },
   ];
 

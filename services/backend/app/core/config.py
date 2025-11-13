@@ -51,6 +51,8 @@ class Settings(BaseSettings):
                 "http://127.0.0.1:3000",
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:5174",
+                "http://localhost:8000",
+                "http://127.0.0.1:8000"
             ]
         if isinstance(v, str):
             return [i.strip() for i in v.split(",")]
@@ -88,13 +90,13 @@ class Settings(BaseSettings):
 
     # Logging
     LOG_LEVEL: str = "INFO"
-    LOG_FILE: str = "logs/app.log"
+    LOG_FILE: str = "app.log"
 
     # AWS Bedrock Configuration
     # Used for embeddings and LLM operations (explanations, descriptions)
-    AWS_ACCESS_KEY_ID: Optional[str] = None
-    AWS_SECRET_ACCESS_KEY: Optional[str] = None
-    AWS_REGION: str = "us-east-1"
+    AWS_ACCESS_KEY_ID: Optional[str] = os.getenv("AWS_ACCESS_KEY_ID", None)
+    AWS_SECRET_ACCESS_KEY: Optional[str] = os.getenv("AWS_SECRET_ACCESS_KEY", None)
+    AWS_REGION: str = os.getenv("AWS_REGION", "us-east-1")
 
     # AWS Bedrock Model Configuration
     BEDROCK_EMBEDDING_MODEL: str = "amazon.titan-embed-text-v1"  # Titan embeddings
@@ -112,7 +114,7 @@ class Settings(BaseSettings):
 
     # Google Gemini Configuration
     # Used for image generation (product posters, banners)
-    GOOGLE_API_KEY: Optional[str] = None
+    GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY", None)
     GEMINI_MODEL: str = "gemini-1.5-pro"  # Gemini model for image generation
     GEMINI_IMAGE_MODEL: str = "imagen-3.0-generate-001"  # Imagen for image generation
 

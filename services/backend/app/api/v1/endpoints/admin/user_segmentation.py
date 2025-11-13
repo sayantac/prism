@@ -25,11 +25,11 @@ class SegmentCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=500)
     criteria: Dict[str, Any]
     segment_type: str = Field(
-        default="custom", regex="^(custom|rfm|behavioral|ml_cluster)$"
+        default="custom", pattern="^(custom|rfm|behavioral|ml_cluster)$"
     )
     is_active: bool = Field(default=True)
     auto_update: bool = Field(default=True)
-    update_frequency: Optional[str] = Field(None, regex="^(daily|weekly|monthly)$")
+    update_frequency: Optional[str] = Field(None, pattern="^(daily|weekly|monthly)$")
 
 
 class SegmentUpdate(BaseModel):
@@ -38,7 +38,7 @@ class SegmentUpdate(BaseModel):
     criteria: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
     auto_update: Optional[bool] = None
-    update_frequency: Optional[str] = Field(None, regex="^(daily|weekly|monthly)$")
+    update_frequency: Optional[str] = Field(None, pattern="^(daily|weekly|monthly)$")
 
 
 class AddUserToSegment(BaseModel):

@@ -26,10 +26,10 @@ logger = logging.getLogger(__name__)
 # Pydantic models for request/response
 class ModelConfigCreate(BaseModel):
     model_name: str = Field(..., min_length=1, max_length=100)
-    model_type: str = Field(..., regex="^(als|lightgbm|kmeans|content_based)$")
+    model_type: str = Field(..., pattern="^(als|lightgbm|kmeans|content_based)$")
     parameters: Dict[str, Any]
     training_schedule: str = Field(
-        default="manual", regex="^(manual|daily|weekly|monthly)$"
+        default="manual", pattern="^(manual|daily|weekly|monthly)$"
     )
     performance_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
     description: Optional[str] = Field(None, max_length=500)
@@ -39,21 +39,21 @@ class ModelConfigUpdate(BaseModel):
     model_name: Optional[str] = Field(None, min_length=1, max_length=100)
     parameters: Optional[Dict[str, Any]] = None
     training_schedule: Optional[str] = Field(
-        None, regex="^(manual|daily|weekly|monthly)$"
+        None, pattern="^(manual|daily|weekly|monthly)$"
     )
     performance_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
     description: Optional[str] = Field(None, max_length=500)
 
 
 class TrainingRequest(BaseModel):
-    model_type: str = Field(..., regex="^(als|lightgbm|kmeans|content_based)$")
+    model_type: str = Field(..., pattern="^(als|lightgbm|kmeans|content_based)$")
     custom_parameters: Optional[Dict[str, Any]] = None
 
 
 class RecommendationInteractionLog(BaseModel):
     user_id: str
     session_id: str
-    interaction_type: str = Field(..., regex="^(view|click|add_to_cart|purchase)$")
+    interaction_type: str = Field(..., pattern="^(view|click|add_to_cart|purchase)$")
     product_id: str
     recommendation_request_id: Optional[str] = None
 
@@ -203,10 +203,10 @@ async def trigger_model_training(
 async def get_training_history(
     days: int = Query(30, ge=1, le=365, description="Days to look back"),
     model_type: Optional[str] = Query(
-        None, regex="^(als|lightgbm|kmeans|content_based)$"
+        None, pattern="^(als|lightgbm|kmeans|content_based)$"
     ),
     status: Optional[str] = Query(
-        None, regex="^(queued|running|completed|failed|cancelled)$"
+        None, pattern="^(queued|running|completed|failed|cancelled)$"
     ),
     limit: int = Query(50, ge=1, le=200, description="Maximum number of records"),
     current_user: User = Depends(require_permission("view_ml_performance")),

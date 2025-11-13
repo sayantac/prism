@@ -10,7 +10,10 @@ env/
 *.pyc
 venv/
 ENV/
+nul
 .venv/
+services/backend/old_recommendation_service
+.claude/
 venv.bak/
 pip-wheel-metadata/
 pip-log.txt

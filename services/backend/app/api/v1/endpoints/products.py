@@ -7,7 +7,6 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import (
@@ -79,8 +78,8 @@ async def list_products(
     min_price: Optional[float] = Query(None),
     max_price: Optional[float] = Query(None),
     in_stock: Optional[bool] = Query(None),
-    sort_by: str = Query("created_at", regex="^(name|price|created_at|popularity)$"),
-    sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    sort_by: str = Query("created_at", pattern="^(name|price|created_at|popularity)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     search_term: str = Query(None),
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
@@ -164,7 +163,7 @@ async def list_categories(
         # Get only root categories (no parent)
         categories = (
             db.query(ProductCategory)
-            .filter(ProductCategory.is_active == True, ProductCategory.parent_id == None)
+            .filter(ProductCategory.is_active, ProductCategory.parent_id.is_(None))
             .order_by(ProductCategory.sort_order, ProductCategory.name)
             .all()
         )
@@ -323,21 +322,17 @@ async def get_customers_who_bought_also_bought(
     """Get products similar to the specified product using ML models"""
     try:
         from app.services.recommendation_service import RecommendationService
-        
         # Verify product exists
         product = db.query(Product).filter(Product.id == uuid.UUID(product_id)).first()
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
-        
         # Use ML-based recommendation service for product similarity
         rec_service = RecommendationService(db)
         similar_products = await rec_service.get_similar_products(
             product_id=product_id,
             limit=limit
         )
-        
         return similar_products
-
     except HTTPException:
         raise
     except Exception as e:
@@ -347,7 +342,7 @@ async def get_customers_who_bought_also_bought(
 
 
 
-@router.get("/new-arrivals")
+@router.get("/new-arrivals", response_model=List[ProductResponse])
 def get_new_arrivals(
     limit: int = Query(default=20, ge=1, le=100),
     days: int = Query(default=30, ge=1, le=365),
@@ -362,13 +357,14 @@ def get_new_arrivals(
         new_products = (
             db.query(Product)
             .filter(
-                Product.is_active == True,
+                Product.is_active,
                 Product.created_at >= cutoff_date
             )
             .order_by(Product.created_at.desc())
             .limit(limit)
             .all()
         )
+        
         
         return new_products
 
@@ -514,17 +510,18 @@ async def get_collaborative_recommendations(
         for product_id in product_ids:
             product = db.query(Product).filter(
                 Product.id == product_id,
-                Product.is_active == True
+                Product.is_active
             ).first()
 
             if product:
-                recommendations.append({
-                    "product_id": str(product.id),
-                    "product": product,
-                    "score": 0.8,  # ALS doesn't return scores directly
-                    "algorithm": "collaborative_filtering",
-                    "reason": "Recommended based on users with similar purchase patterns"
-                })
+                    from app.utils import product_to_json
+                    recommendations.append({
+                        "product_id": str(product.id),
+                        "product": product_to_json(product),
+                        "score": 0.8,  # ALS doesn't return scores directly
+                        "algorithm": "collaborative_filtering",
+                        "reason": "Recommended based on users with similar purchase patterns"
+                    })
 
         # Add explanations
         rec_service = RecommendationService(db)
@@ -541,7 +538,7 @@ async def get_collaborative_recommendations(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/recommendations/content-based")
+@router.get("/recommendations/content-based" )
 async def get_content_based_recommendations(
     limit: int = Query(default=10, ge=1, le=50),
     current_user: Optional[User] = Depends(get_current_user_optional),
@@ -566,14 +563,15 @@ async def get_content_based_recommendations(
 
         user_id = str(current_user.id)
 
-        # Get user's purchase history
+        # Get user's purchase history: group by product_id and order by most recent order date
         query = text("""
-            SELECT DISTINCT oi.product_id
+            SELECT oi.product_id
             FROM order_items oi
             JOIN orders o ON oi.order_id = o.id
             WHERE o.user_id = :user_id
                 AND o.status NOT IN ('cancelled', 'pending')
-            ORDER BY o.created_at DESC
+            GROUP BY oi.product_id
+            ORDER BY MAX(o.created_at) DESC
             LIMIT 5
         """)
 
@@ -608,7 +606,7 @@ async def get_content_based_recommendations(
         for i, product_id in enumerate(product_ids):
             product = db.query(Product).filter(
                 Product.id == product_id,
-                Product.is_active == True
+                Product.is_active
             ).first()
 
             if product:
@@ -636,7 +634,7 @@ async def get_content_based_recommendations(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/recommendations/hybrid")
+@router.get("/recommendations/hybrid"  )
 async def get_hybrid_recommendations(
     limit: int = Query(default=10, ge=1, le=50),
     cf_weight: float = Query(default=0.5, ge=0.0, le=1.0),
@@ -692,20 +690,21 @@ async def get_hybrid_recommendations(
         for rec in hybrid_recs:
             product = db.query(Product).filter(
                 Product.id == rec["product_id"],
-                Product.is_active == True
+                Product.is_active
             ).first()
 
             if product:
-                recommendations.append({
-                    "product_id": str(product.id),
-                    "product": product,
-                    "score": rec["score"],
-                    "cf_score": rec.get("cf_score", 0.0),
-                    "content_score": rec.get("content_score", 0.0),
-                    "trending_score": rec.get("trending_score", 0.0),
-                    "algorithm": "hybrid",
-                    "reason": f"Combined score from multiple algorithms (CF: {cf_weight:.1f}, Content: {content_weight:.1f}, Trending: {trending_weight:.1f})"
-                })
+                    from app.utils import product_to_json
+                    recommendations.append({
+                        "product_id": str(product.id),
+                        "product": product_to_json(product),
+                        "score": rec["score"],
+                        "cf_score": rec.get("cf_score", 0.0),
+                        "content_score": rec.get("content_score", 0.0),
+                        "trending_score": rec.get("trending_score", 0.0),
+                        "algorithm": "hybrid",
+                        "reason": f"Combined score from multiple algorithms (CF: {cf_weight:.1f}, Content: {content_weight:.1f}, Trending: {trending_weight:.1f})"
+                    })
 
         # Add explanations
         from app.services.recommendation_service import RecommendationService
@@ -750,7 +749,7 @@ async def get_segment_based_recommendations(
         # Get user's segment membership
         segment_membership = db.query(UserSegmentMembership).filter(
             UserSegmentMembership.user_id == user_id,
-            UserSegmentMembership.is_active == True
+            UserSegmentMembership.is_active
         ).first()
 
         if not segment_membership:
@@ -801,7 +800,7 @@ async def get_segment_based_recommendations(
                     "product": product,
                     "score": round(score, 4),
                     "algorithm": "segment_based",
-                    "reason": f"Popular among users in your segment",
+                    "reason": "Popular among users in your segment",
                     "segment_id": str(segment_membership.segment_id),
                     "popularity": row.purchase_count
                 })
@@ -871,13 +870,13 @@ async def get_reorder_predictions(
 
         # Get ML engine with LightGBM model (if available)
         ml_engine = MLEngineService(db=db)
-        lgbm_model = ml_engine.active_models.get("lightgbm")
+    # lgbm_model = ml_engine.active_models.get("lightgbm")  # Unused variable removed
 
         recommendations = []
         for i, row in enumerate(results[:limit]):
             product = db.query(Product).filter(
                 Product.id == row.product_id,
-                Product.is_active == True
+                Product.is_active
             ).first()
 
             if product:
@@ -928,6 +927,7 @@ async def get_personalized_trending(
     try:
         from app.services.recommendation_service import RecommendationService
         from sqlalchemy import text
+        from uuid import UUID as _UUID
 
         if not current_user:
             # Anonymous users get general trending
@@ -950,7 +950,8 @@ async def get_personalized_trending(
         """)
 
         category_results = db.execute(category_query, {"user_id": user_id}).fetchall()
-        preferred_category_ids = [str(r.category_id) for r in category_results if r.category_id]
+        # Convert category ids to UUID objects only if they are not already UUIDs
+        preferred_category_ids = [str(r.category_id) if not isinstance(r.category_id, str) else r.category_id for r in category_results if r.category_id]
 
         # Get trending products in user's preferred categories
         if preferred_category_ids:
@@ -969,7 +970,7 @@ async def get_personalized_trending(
                         AND o.status NOT IN ('cancelled', 'pending')
                     WHERE p.is_active = true
                         AND p.stock_quantity > 0
-                        AND p.category_id = ANY(:category_ids)
+                        AND p.category_id = ANY(ARRAY[:category_ids]::uuid[])
                     GROUP BY p.id
                     HAVING COUNT(DISTINCT oi.order_id) > 0
                 )
@@ -994,13 +995,14 @@ async def get_personalized_trending(
         recommendations = []
         max_score = max([float(r.popularity_score) for r in results]) if results else 1.0
 
+        from app.utils import product_to_json
         for row in results:
             product = db.query(Product).filter(Product.id == row.product_id).first()
             if product:
                 score = float(row.popularity_score) / max_score if max_score > 0 else 0.5
                 recommendations.append({
                     "product_id": str(product.id),
-                    "product": product,
+                    "product": product_to_json(product),
                     "score": round(score, 4),
                     "algorithm": "personalized_trending",
                     "reason": "Trending in categories you love"
@@ -1095,8 +1097,8 @@ async def get_similar_products(
             for pid in similar_product_ids:
                 similar_product = db.query(Product).filter(
                     Product.id == pid,
-                    Product.is_active == True,
-                    Product.in_stock == True
+                    Product.is_active,
+                    Product.in_stock
                 ).first()
                 if similar_product:
                     similar_products.append(similar_product)
@@ -1109,8 +1111,8 @@ async def get_similar_products(
                 db.query(Product)
                 .filter(Product.category_id == product.category_id)
                 .filter(Product.id != product_id)
-                .filter(Product.is_active == True)
-                .filter(Product.in_stock == True)
+                .filter(Product.is_active)
+                .filter(Product.in_stock)
                 .filter(Product.id.notin_([p.id for p in similar_products]))
                 .limit(limit - len(similar_products))
                 .all()
@@ -1123,8 +1125,8 @@ async def get_similar_products(
                     db.query(Product)
                     .filter(Product.brand == product.brand)
                     .filter(Product.id != product_id)
-                    .filter(Product.is_active == True)
-                    .filter(Product.in_stock == True)
+                    .filter(Product.is_active)
+                    .filter(Product.in_stock)
                     .filter(Product.id.notin_([p.id for p in similar_products]))
                     .limit(limit - len(similar_products))
                     .all()
@@ -1140,8 +1142,8 @@ async def get_similar_products(
             db.query(Product)
             .filter(Product.category_id == product.category_id)
             .filter(Product.id != product_id)
-            .filter(Product.is_active == True)
-            .filter(Product.in_stock == True)
+            .filter(Product.is_active)
+            .filter(Product.in_stock)
             .limit(limit)
             .all()
         )
@@ -1153,7 +1155,7 @@ def get_product_categories(db: Session):
     """Get all active categories with caching"""
     return (
         db.query(ProductCategory)
-        .filter(ProductCategory.is_active == True)
+        .filter(ProductCategory.is_active)
         .order_by(ProductCategory.sort_order, ProductCategory.name)
         .all()
     )

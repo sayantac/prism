@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Clock, Package, ShoppingCart, User } from "lucide-react";
-import { useGetAdminDashboardQuery } from "@/store/api/adminApi";
+import { useGetRecentActivityQuery } from "@/store/api/adminApi";
 
 export const RecentActivity: React.FC = () => {
-  const { data: overview, isLoading } = useGetAdminDashboardQuery({ days: 90 });
+  const { data: activityData, isLoading, error, refetch } = useGetRecentActivityQuery({ limit: 50, hours: 24 });
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -13,6 +13,8 @@ export const RecentActivity: React.FC = () => {
         return <User className="w-4 h-4" />;
       case "product":
         return <Package className="w-4 h-4" />;
+      case "audit":
+        return <Clock className="w-4 h-4" />;
       default:
         return <Clock className="w-4 h-4" />;
     }
@@ -26,6 +28,8 @@ export const RecentActivity: React.FC = () => {
         return "text-info";
       case "product":
         return "text-warning";
+      case "audit":
+        return "text-primary";
       default:
         return "text-base-content";
     }
@@ -35,7 +39,21 @@ export const RecentActivity: React.FC = () => {
     return <div className="skeleton h-64 w-full"></div>;
   }
 
-  const activities = overview?.analytics?.recent_activity || [];
+  if (error) {
+    return (
+      <div className="bg-error/10 border border-error/20 rounded-lg p-6">
+        <div className="flex items-center gap-2 text-error mb-4">
+          <Clock className="w-5 h-5" />
+          <span>Failed to load recent activity</span>
+        </div>
+        <button onClick={refetch} className="btn btn-error btn-sm">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const activities = activityData?.data?.activities || [];
 
   return (
     <div className="card bg-base-100 shadow-xl">

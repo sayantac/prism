@@ -105,7 +105,7 @@ export const AdminAnalytics: React.FC = () => {
                 </div>
                 <div className="mt-2 flex justify-between items-center">
                   <span className="text-sm">
-                    CTR: {(Math.random() * 10 + 15).toFixed(1)}%
+                    CTR: {(Math.random() * 10 + 15)?.toFixed(1)}%
                   </span>
                   <Badge variant="success" size="sm">
                     Active

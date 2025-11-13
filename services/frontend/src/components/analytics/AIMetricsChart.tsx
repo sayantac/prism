@@ -1,13 +1,13 @@
 import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+    Bar,
+    CartesianGrid,
+    ComposedChart,
+    Legend,
+    Line,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from "recharts";
 
 interface AIMetricsChartProps {
@@ -25,20 +25,8 @@ export const AIMetricsChart: React.FC<AIMetricsChartProps> = ({
   data,
   className = "",
 }) => {
-  const mockData = Array.from({ length: 14 }, (_, i) => ({
-    date: new Date(
-      Date.now() - (13 - i) * 24 * 60 * 60 * 1000
-    ).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    }),
-    ctr: Math.random() * 10 + 15, // 15-25%
-    conversionRate: Math.random() * 5 + 8, // 8-13%
-    impressions: Math.floor(Math.random() * 1000 + 500),
-    modelAccuracy: Math.random() * 5 + 85, // 85-90%
-  }));
-
-  const chartData = data || mockData;
+  // Use real API data, fallback to empty array
+  const chartData = Array.isArray(data) ? data : [];
 
   return (
     <div className={`w-full ${className}`}>
@@ -74,7 +62,7 @@ export const AIMetricsChart: React.FC<AIMetricsChartProps> = ({
                 name.includes("ctr") ||
                 name.includes("Accuracy")
               ) {
-                return [`${value.toFixed(1)}%`, name];
+                return [`${value?.toFixed(1)}%`, name];
               }
               return [value.toLocaleString(), name];
             }}

@@ -422,7 +422,7 @@ class SettingDefinition(BaseModel):
     category: str = Field(..., min_length=1, max_length=100)
     key: str = Field(..., min_length=1, max_length=200)
     value: Union[str, int, float, bool, dict, list]
-    data_type: str = Field(..., regex="^(string|integer|float|boolean|json|list)$")
+    data_type: str = Field(..., pattern="^(string|integer|float|boolean|json|list)$")
     description: Optional[str] = None
     validation_rules: Optional[ValidationRule] = None
     is_sensitive: bool = False
@@ -466,7 +466,7 @@ class SettingsCategoryCreate(BaseModel):
     icon: Optional[str] = Field(None, max_length=50)
     sort_order: int = 0
     requires_restart: bool = False
-    access_level: str = Field("admin", regex="^(admin|superuser|system)$")
+    access_level: str = Field("admin", pattern="^(admin|superuser|system)$")
 
 
 class SettingsCategoryUpdate(BaseModel):
@@ -475,7 +475,7 @@ class SettingsCategoryUpdate(BaseModel):
     icon: Optional[str] = Field(None, max_length=50)
     sort_order: Optional[int] = None
     requires_restart: Optional[bool] = None
-    access_level: Optional[str] = Field(None, regex="^(admin|superuser|system)$")
+    access_level: Optional[str] = Field(None, pattern="^(admin|superuser|system)$")
     is_active: Optional[bool] = None
 
 
@@ -510,14 +510,14 @@ class SettingsChangeLogFilter(BaseModel):
 class SettingsExportRequest(BaseModel):
     categories: Optional[List[str]] = None
     include_sensitive: bool = False
-    format: str = Field("json", regex="^(json|yaml|env)$")
+    format: str = Field("json", pattern="^(json|yaml|env)$")
 
 
 class SettingsImportRequest(BaseModel):
     settings_data: str
-    format: str = Field("json", regex="^(json|yaml|env)$")
+    format: str = Field("json", pattern="^(json|yaml|env)$")
     validate_only: bool = False
-    merge_strategy: str = Field("replace", regex="^(replace|merge|skip_existing)$")
+    merge_strategy: str = Field("replace", pattern="^(replace|merge|skip_existing)$")
 
 
 class ImportResult(BaseModel):

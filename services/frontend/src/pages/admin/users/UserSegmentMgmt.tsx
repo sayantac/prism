@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/admin/UserSegmentation.tsx
 import { motion } from "framer-motion";
-import { Edit, Plus, Target } from "lucide-react";
+import { Edit, Plus, RefreshCw, Target, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "react-hot-toast";
@@ -9,8 +9,12 @@ import { Button } from "../../../components/ui/Button";
 import { Input } from "../../../components/ui/Input";
 import { AdminTable, StatCard } from "../../../components/admin/ui/Chart";
 import {
-  // useCreateUserSegmentMutation
   useGetUserSegmentsQuery,
+  useCreateUserSegmentMutation,
+  useUpdateUserSegmentMutation,
+  useDeleteUserSegmentMutation,
+  useRecalculateSegmentMutation,
+  useGenerateRfmSegmentsMutation,
 } from "../../../store/api/adminApi";
 
 interface SegmentForm {
@@ -34,7 +38,14 @@ export const UserSegmentation: React.FC = () => {
   const { data: segments, isLoading: segmentsLoading } =
     useGetUserSegmentsQuery({});
 
-
+  const [createSegment, { isLoading: isCreating }] =
+    useCreateUserSegmentMutation();
+  const [updateSegment, { isLoading: isUpdating }] =
+    useUpdateUserSegmentMutation();
+  const [deleteSegment] = useDeleteUserSegmentMutation();
+  const [recalculateSegment] = useRecalculateSegmentMutation();
+  const [generateRfmSegments, { isLoading: isGeneratingRfm }] =
+    useGenerateRfmSegmentsMutation();
 
   const {
     register,
@@ -43,16 +54,16 @@ export const UserSegmentation: React.FC = () => {
     formState: { errors },
   } = useForm<SegmentForm>();
 
-  const onSubmit = async (_data: SegmentForm) => {
+  const onSubmit = async (data: SegmentForm) => {
     try {
-      // if (editingSegment) {
-      //   await updateSegment({ id: editingSegment.id, ...data }).unwrap();
-      //   toast.success("Segment updated successfully");
-      //   setEditingSegment(null);
-      // } else {
-      //   await createSegment(data).unwrap();
-      //   toast.success("Segment created successfully");
-      // }
+      if (editingSegment) {
+        await updateSegment({ segmentId: editingSegment.id, segment: data }).unwrap();
+        toast.success("Segment updated successfully");
+        setEditingSegment(null);
+      } else {
+        await createSegment(data).unwrap();
+        toast.success("Segment created successfully");
+      }
       reset();
       setActiveTab("segments");
     } catch (error) {
@@ -61,10 +72,42 @@ export const UserSegmentation: React.FC = () => {
     }
   };
 
+  const handleDeleteSegment = async (segmentId: string) => {
+    if (!confirm("Are you sure you want to delete this segment?")) return;
+    try {
+      await deleteSegment(segmentId).unwrap();
+      toast.success("Segment deleted successfully");
+    } catch (error) {
+      toast.error("Failed to delete segment");
+      console.error("Segment delete error:", error);
+    }
+  };
+
+  const handleRecalculateSegment = async (segmentId: string) => {
+    try {
+      await recalculateSegment({ segmentId }).unwrap();
+      toast.success("Segment recalculation started");
+    } catch (error) {
+      toast.error("Failed to recalculate segment");
+      console.error("Segment recalculate error:", error);
+    }
+  };
+
+  const handleGenerateRfm = async () => {
+    try {
+      await generateRfmSegments({ n_clusters: 5, lookback_days: 365 }).unwrap();
+      toast.success("RFM segments generated successfully");
+      setActiveTab("segments");
+    } catch (error) {
+      toast.error("Failed to generate RFM segments");
+      console.error("RFM generation error:", error);
+    }
+  };
+
   const segmentStats = [
     {
       title: "Total Segments",
-      value: segments?.segments?.length?.toString() || "0",
+      value: segments?.length?.toString() || "0",
       icon: <Target className="w-6 h-6" />,
       color: "text-primary",
     },
@@ -90,17 +133,33 @@ export const UserSegmentation: React.FC = () => {
       title: "Actions",
       width: "10%",
       render: (_value: any, record: any) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setEditingSegment(record);
-            setActiveTab("create");
-            reset(record);
-          }}
-        >
-          <Edit className="w-4 h-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEditingSegment(record);
+              setActiveTab("create");
+              reset(record);
+            }}
+          >
+            <Edit className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleRecalculateSegment(record.id)}
+          >
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleDeleteSegment(record.id)}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -181,9 +240,71 @@ export const UserSegmentation: React.FC = () => {
 
           <AdminTable
             columns={segmentColumns}
-            data={segments?.segments || []}
+            data={segments || []}
             loading={segmentsLoading}
           />
+        </motion.div>
+      )}
+
+      {activeTab === "rfm" && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="card bg-base-100 shadow-xl">
+            <div className="card-body">
+              <h3 className="card-title">RFM Analysis</h3>
+              <p className="text-base-content/70 mb-6">
+                Generate user segments based on Recency, Frequency, and Monetary
+                analysis. This will automatically create segments based on
+                customer purchase patterns.
+              </p>
+              <div className="space-y-4">
+                <div className="alert alert-info">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    className="stroke-current shrink-0 w-6 h-6"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    ></path>
+                  </svg>
+                  <div>
+                    <h3 className="font-bold">What is RFM Analysis?</h3>
+                    <div className="text-xs">
+                      RFM segments users based on:
+                      <ul className="list-disc list-inside mt-2">
+                        <li>
+                          <strong>Recency:</strong> How recently did they
+                          purchase?
+                        </li>
+                        <li>
+                          <strong>Frequency:</strong> How often do they
+                          purchase?
+                        </li>
+                        <li>
+                          <strong>Monetary:</strong> How much do they spend?
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="primary"
+                  onClick={handleGenerateRfm}
+                  loading={isGeneratingRfm}
+                  icon={<RefreshCw className="w-4 h-4" />}
+                >
+                  Generate RFM Segments
+                </Button>
+              </div>
+            </div>
+          </div>
         </motion.div>
       )}
 
@@ -273,7 +394,7 @@ export const UserSegmentation: React.FC = () => {
                   <Button
                     type="submit"
                     variant="primary"
-                    // loading={isCreating || isUpdating}
+                    loading={isCreating || isUpdating}
                   >
                     {editingSegment ? "Update Segment" : "Create Segment"}
                   </Button>

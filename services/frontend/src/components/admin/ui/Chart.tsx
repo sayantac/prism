@@ -197,7 +197,7 @@ export const Chart: React.FC<ChartProps> = ({
               fill={color}
               dataKey={yKey}
               label={({ name, percent }) =>
-                `${name} ${(percent * 100).toFixed(0)}%`
+                `${name} ${(percent * 100)?.toFixed(0)}%`
               }
             >
               {data.map((entry, index) => (

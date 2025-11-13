@@ -15,10 +15,10 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
 import { useAuth } from "@/hooks";
+import { useSearchProductsQuery } from "@/store/api/productApi";
 const AdBannerPortal = () => {
   const [activeTab, setActiveTab] = useState("create");
   const [banners, setBanners] = useState([]);
-  const [products, setProducts] = useState([]);
   const [selectedSegment, setSelectedSegment] = useState("");
   const [selectedProduct, setSelectedProduct] = useState("");
   const [dealType, setDealType] = useState("discount");
@@ -31,7 +31,13 @@ const AdBannerPortal = () => {
   const [bannerTitle, setBannerTitle] = useState("");
   const [bannerDescription, setBannerDescription] = useState("");
   const [productSearch, setProductSearch] = useState("");
-  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+
+  // Use RTK Query for product search
+  const { data: productData, isLoading: isLoadingProducts } = useSearchProductsQuery(
+    { q: productSearch || "all", page: 1, page_size: 20 },
+    { skip: false }
+  );
+  const products = productData?.items || [];
 
   // Your specific segments data
   const userSegments = [
@@ -69,42 +75,8 @@ const AdBannerPortal = () => {
     },
   ];
 
-  // API integration functions using the correct search endpoint
+  // API integration functions
   const { token } = useAuth();
-  const fetchProducts = async (search = "", page = 1, pageSize = 20) => {
-    setIsLoadingProducts(true);
-    try {
-      const queryParams = new URLSearchParams({
-        q: search,
-        page: page.toString(),
-        page_size: pageSize.toString(),
-        sort: "relevance",
-      });
-
-      const response = await fetch(
-        `http://localhost:8000/api/v1/search/?${queryParams}`,
-        {
-          headers: {
-            Accept: "*/*",
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setProducts(data.products || []);
-      } else {
-        console.error("Failed to fetch products:", data);
-      }
-    } catch (error) {
-      console.error("Error fetching products:", error);
-    } finally {
-      setIsLoadingProducts(false);
-    }
-  };
 
   const generateBannerContent = async () => {
     setIsGenerating(true);
@@ -296,18 +268,8 @@ const AdBannerPortal = () => {
 
   // Load initial data
   useEffect(() => {
-    fetchProducts();
     fetchBanners();
   }, []);
-
-  // Load products when search changes
-  useEffect(() => {
-    const delayedSearch = setTimeout(() => {
-      fetchProducts(productSearch);
-    }, 300);
-
-    return () => clearTimeout(delayedSearch);
-  }, [productSearch]);
 
   return (
     <div className="min-h-screen bg-base-200">
@@ -421,10 +383,10 @@ const AdBannerPortal = () => {
                           </h3>
                           <div className="text-xs text-base-content/70 space-y-1">
                             <div>
-                              AOV: ${segment.avg_order_value.toFixed(2)}
+                              AOV: ${segment.avg_order_value?.toFixed(2)}
                             </div>
                             <div>
-                              Conv: {segment.conversion_rate.toFixed(1)}%
+                              Conv: {segment.conversion_rate?.toFixed(1)}%
                             </div>
                             <div>
                               Revenue: $
@@ -907,7 +869,7 @@ const AdBannerPortal = () => {
                 );
                 const ctr =
                   totalImpressions > 0
-                    ? ((totalClicks / totalImpressions) * 100).toFixed(2)
+                    ? ((totalClicks / totalImpressions) * 100)?.toFixed(2)
                     : "0.00";
 
                 return (
@@ -965,7 +927,7 @@ const AdBannerPortal = () => {
                             AOV:
                           </span>
                           <span className="font-medium text-success">
-                            ${segment.avg_order_value.toFixed(2)}
+                            ${segment.avg_order_value?.toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -1469,8 +1431,8 @@ export default AdBannerPortal;
 //                         {segment.name}
 //                       </h3>
 //                       <div className="text-xs text-gray-500 space-y-1">
-//                         <div>AOV: ${segment.avg_order_value.toFixed(2)}</div>
-//                         <div>Conv: {segment.conversion_rate.toFixed(1)}%</div>
+//                         <div>AOV: ${segment.avg_order_value?.toFixed(2)}</div>
+//                         <div>Conv: {segment.conversion_rate?.toFixed(1)}%</div>
 //                         <div>
 //                           Revenue: $
 //                           {segment.revenue_contribution.toLocaleString()}
@@ -1914,7 +1876,7 @@ export default AdBannerPortal;
 //                 );
 //                 const ctr =
 //                   totalImpressions > 0
-//                     ? ((totalClicks / totalImpressions) * 100).toFixed(2)
+//                     ? ((totalClicks / totalImpressions) * 100)?.toFixed(2)
 //                     : "0.00";
 
 //                 return (
@@ -1967,7 +1929,7 @@ export default AdBannerPortal;
 //                       <div className="flex justify-between">
 //                         <span className="text-gray-600">AOV:</span>
 //                         <span className="font-medium">
-//                           ${segment.avg_order_value.toFixed(2)}
+//                           ${segment.avg_order_value?.toFixed(2)}
 //                         </span>
 //                       </div>
 //                     </div>

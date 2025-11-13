@@ -153,11 +153,11 @@ async def create_order(
     return order
 
 
-@router.get("/", response_model=PaginatedResponse)
+@router.get("/")
 async def list_orders(
     pagination: PaginationParams = Depends(get_pagination_params),
     status_filter: Optional[str] = Query(
-        None, regex="^(pending|confirmed|shipped|delivered|cancelled)$"
+        None, description="Filter orders by status"
     ),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
@@ -182,10 +182,14 @@ async def list_orders(
         .all()
     )
 
+    # Serialize orders to OrderResponse
+    from app.schemas.order import OrderResponse
+    serialized_orders = [OrderResponse.from_orm(order) for order in orders]
+
     pages = (total + pagination.size - 1) // pagination.size
 
     return PaginatedResponse(
-        items=orders,
+        items=serialized_orders,
         total=total,
         page=pagination.page,
         size=pagination.size,

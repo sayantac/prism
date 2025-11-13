@@ -37,7 +37,7 @@ import {
   PieChart,
   ResponsiveContainer,
   Tooltip,
-  XAxis,
+  XAxis,LineChart,Line,
   YAxis,
 } from "recharts";
 import {
@@ -45,10 +45,10 @@ import {
   useGetModelPerformanceQuery,
   useGetRecommendationPerformanceQuery,
   useGetSegmentPerformanceQuery,
-  useGetUserSegmentsQuery,
-  useRefreshSegmentsMutation,
-  useToggleModelMutation,
-  useTrainModelsMutation,
+  useRecalculateSegmentMutation,
+  useGetSegmentUsersQuery,
+  useActivateMlConfigMutation,
+  useTrainModelsMutation,useGetUserSegmentsQuery
 } from "../../../store/api/adminApi";
 
 // ML Model Management Component
@@ -59,47 +59,57 @@ const MLModelManagement = () => {
   const {
     data: mlConfigs,
     isLoading: modelsLoading,
+    error: modelsError,
     refetch: refetchModels,
   } = useGetMlConfigsQuery({});
 
   const [trainModel] = useTrainModelsMutation();
-  const [toggleModel] = useToggleModelMutation();
+  const [toggleModel] = useActivateMlConfigMutation();
 
-  const handleTrainModel = async (modelName: string | number) => {
+  const handleTrainModel = async (model: any) => {
     try {
-      setTrainingProgress((prev) => ({ ...prev, [modelName]: 0 }));
+      setTrainingProgress((prev) => ({ ...prev, [model.id]: 0 }));
 
-      const result = await trainModel({ modelName }).unwrap();
+      // Train specific model using model type
+      const result = await trainModel({
+        retrain_all: false,
+        specific_models: [model.model_type] // Use model_type instead of ID
+      }).unwrap();
 
-      // Simulate training progress
+      // Simulate training progress (in a real app, this would come from the API)
       const progressInterval = setInterval(() => {
         setTrainingProgress((prev) => {
-          const current = prev[modelName] || 0;
+          const current = prev[model.id] || 0;
           if (current >= 100) {
             clearInterval(progressInterval);
-            return { ...prev, [modelName]: 100 };
+            return { ...prev, [model.id]: 100 };
           }
-          return { ...prev, [modelName]: current + 10 };
+          return { ...prev, [model.id]: current + 10 };
         });
       }, 1000);
 
-      // Show success message
+      // Show success message after training completes
       setTimeout(() => {
-        setTrainingProgress((prev) => ({ ...prev, [modelName]: null }));
+        setTrainingProgress((prev) => ({ ...prev, [model.id]: null }));
         refetchModels();
+        // Add success alert
+        alert(`Training completed successfully for ${model.name || model.model_type}`);
       }, 12000);
     } catch (error) {
       console.error("Training failed:", error);
-      setTrainingProgress((prev) => ({ ...prev, [modelName]: null }));
+      setTrainingProgress((prev) => ({ ...prev, [model.id]: null }));
+      // You could add error toast here
     }
   };
 
-  const handleToggleModel = async (modelName: any) => {
+  const handleToggleModel = async (configId: string) => {
     try {
-      await toggleModel({ modelName }).unwrap();
+      await toggleModel(configId).unwrap();
       refetchModels();
+      alert("Model status updated successfully");
     } catch (error) {
       console.error("Toggle failed:", error);
+      alert("Failed to update model status");
     }
   };
 
@@ -111,11 +121,29 @@ const MLModelManagement = () => {
     );
   }
 
+  if (modelsError) {
+    return (
+      <div className="alert alert-error shadow-lg">
+        <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+          <h3 className="font-bold">Failed to load ML models</h3>
+          <div className="text-xs">Please try refreshing the page</div>
+        </div>
+        <button onClick={() => refetchModels()} className="btn btn-sm btn-outline">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* ML Models Overview */}
       {selectedModel && (
-        <ModelPerformanceCharts modelName={selectedModel.model_name} />
+        <ModelPerformanceCharts modelId={selectedModel.id} />
       )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
@@ -176,16 +204,16 @@ const MLModelManagement = () => {
 
                       <div className="flex items-center gap-3">
                         {/* Training Progress */}
-                        {trainingProgress[model.model_name] !== undefined &&
-                          trainingProgress[model.model_name] !== null && (
+                        {trainingProgress[model.id] !== undefined &&
+                          trainingProgress[model.id] !== null && (
                             <div className="flex items-center gap-2">
                               <div
                                 className="radial-progress text-primary text-sm"
                                 style={{
-                                  "--value": trainingProgress[model.model_name],
+                                  "--value": trainingProgress[model.id],
                                 }}
                               >
-                                {trainingProgress[model.model_name]}%
+                                {trainingProgress[model.id]}%
                               </div>
                               <span className="text-xs">Training...</span>
                             </div>
@@ -217,12 +245,12 @@ const MLModelManagement = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleTrainModel(model.model_name);
+                              handleTrainModel(model);
                             }}
                             disabled={
-                              trainingProgress[model.model_name] !==
+                              trainingProgress[model.id] !==
                                 undefined &&
-                              trainingProgress[model.model_name] !== null
+                              trainingProgress[model.id] !== null
                             }
                             className="btn btn-sm btn-primary btn-outline"
                           >
@@ -244,7 +272,7 @@ const MLModelManagement = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleToggleModel(model.model_name);
+                              handleToggleModel(model.id);
                             }}
                             className={`btn btn-sm ${
                               model.is_active ? "btn-warning" : "btn-success"
@@ -327,7 +355,7 @@ const MLModelManagement = () => {
 // Model Details Panel Component
 const ModelDetailsPanel = ({ model }) => {
   const { data: modelPerformance, isLoading: performanceLoading } =
-    useGetModelPerformanceQuery({ modelName: model.model_name });
+    useGetModelPerformanceQuery({ configId: model.id });
 
   return (
     <div className="space-y-4">
@@ -927,14 +955,18 @@ const RecommendationManagement = () => {
   const [selectedAlgorithm, setSelectedAlgorithm] = useState("all");
   const [timeRange, setTimeRange] = useState(30);
 
+  // Updated query to use correct endpoint and parameters
   const {
-    data: recPerformance,
+    data: rawRecPerformance,
     isLoading: recLoading,
     refetch: refetchRecPerformance,
   } = useGetRecommendationPerformanceQuery({
-    algorithm: selectedAlgorithm === "all" ? null : selectedAlgorithm,
+    algorithm: selectedAlgorithm === "all" ? "all" : selectedAlgorithm,
     days: timeRange,
   });
+
+  // Normalize API response: if object, convert to array
+  const recPerformance = rawRecPerformance ? [rawRecPerformance] : [];
 
   const algorithms = [
     { id: "all", name: "All Algorithms", color: "primary" },
@@ -1001,7 +1033,7 @@ const RecommendationManagement = () => {
 
       {/* Algorithm Performance Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {recPerformance?.map((algorithm: any, index: number) => (
+  {Array.isArray(recPerformance) && recPerformance.map((algorithm: any, index: number) => (
           <motion.div
             key={algorithm.algorithm}
             initial={{ opacity: 0, y: 20 }}
@@ -1070,22 +1102,27 @@ const RecommendationManagement = () => {
 
 // Recommendation Performance Chart
 const RecommendationPerformanceChart = ({ algorithms }) => {
-  const chartData =
-    algorithms?.map(
-      (alg: {
-        algorithm: string;
-        click_through_rate: any;
-        conversion_rate: any;
-        impressions: any;
-        revenue_impact: any;
-      }) => ({
-        name: alg.algorithm.replace(/_/g, " "),
-        ctr: alg.click_through_rate,
-        conversion: alg.conversion_rate,
-        impressions: alg.impressions,
-        revenue: alg.revenue_impact,
-      })
-    ) || [];
+  // Normalize and map API fields for chart rendering
+  const chartData = Array.isArray(algorithms)
+    ? algorithms.map((alg: any) => ({
+        name: alg.algorithm ? alg.algorithm.replace(/_/g, " ") : "All",
+        ctr: alg.click_rate ?? alg.click_through_rate ?? 0,
+        conversion: alg.conversion_rate ?? 0,
+        impressions: alg.total_recommendations ?? alg.impressions ?? 0,
+        revenue: alg.revenue_impact ?? 0,
+        total_clicks: alg.total_clicks ?? 0,
+        total_conversions: alg.total_conversions ?? 0,
+        average_score: alg.average_score ?? 0,
+        period_days: alg.period_days ?? 0,
+        performance_by_day: alg.performance_by_day ?? [],
+        top_performing_products: alg.top_performing_products ?? [],
+      }))
+    : [];
+
+  // Daily performance chart data
+  const dailyData = chartData[0]?.performance_by_day || [];
+  // Top performing products
+  const topProducts = chartData[0]?.top_performing_products || [];
 
   return (
     <div className="card bg-base-100 border border-base-300 shadow-lg">
@@ -1109,50 +1146,76 @@ const RecommendationPerformanceChart = ({ algorithms }) => {
                   }}
                 />
                 <Legend />
-                <Bar dataKey="ctr" fill="#3ac999" name="CTR %" />
-                <Bar dataKey="conversion" fill="#60a5fa" name="Conversion %" />
+                {/* <Bar dataKey="ctr" fill="#3ac999" name="CTR %" />
+                <Bar dataKey="conversion" fill="#60a5fa" name="Conversion %" /> */}
+                <Bar dataKey="impressions" fill="#fb923c" name="Impressions" />
+                <Bar dataKey="total_clicks" fill="#f87171" name="Total Clicks" />
+                <Bar dataKey="total_conversions" fill="#06b6d4" name="Total Conversions" />
               </BarChart>
             </ResponsiveContainer>
+            {/* Summary stats */}
+            <div className="mt-4 grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs text-base-content/60">Period (days)</div>
+                <div className="font-bold">{chartData[0]?.period_days}</div>
+              </div>
+              <div>
+                <div className="text-xs text-base-content/60">Avg Score</div>
+                <div className="font-bold">{(chartData[0]?.average_score * 100).toFixed(1)}%</div>
+              </div>
+            </div>
           </div>
 
-          {/* Revenue Distribution */}
+          {/* Daily Performance Chart */}
           <div>
-            <h4 className="font-medium mb-4">Revenue Distribution</h4>
+            <h4 className="font-medium mb-4">Daily Performance</h4>
             <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={chartData}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="revenue"
-                  label={({ name, percent }) =>
-                    `${name}: ${(percent * 100).toFixed(0)}%`
-                  }
-                >
-                  {chartData.map((entry: any, index: number) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={
-                        ["#3ac999", "#60a5fa", "#fb923c", "#f87171"][index % 4]
-                      }
-                    />
-                  ))}
-                </Pie>
+              <LineChart data={dailyData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip
-                  formatter={(value) => [
-                    `$${value.toLocaleString()}`,
-                    "Revenue",
-                  ]}
                   contentStyle={{
                     backgroundColor: "white",
                     border: "1px solid #e2e8f0",
                     borderRadius: "8px",
                   }}
                 />
-              </PieChart>
+                <Legend />
+                <Line type="monotone" dataKey="recommendations" stroke="#3ac999" name="Recommendations" />
+                <Line type="monotone" dataKey="clicks" stroke="#60a5fa" name="Clicks" />
+                <Line type="monotone" dataKey="conversions" stroke="#fb923c" name="Conversions" />
+              </LineChart>
             </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Top Performing Products Table */}
+        <div className="mt-8">
+          <h4 className="font-medium mb-4">Top Performing Products</h4>
+          <div className="overflow-x-auto">
+            <table className="table table-zebra">
+              <thead>
+                <tr>
+                  <th>Product Name</th>
+                  <th>Recommendations</th>
+                  <th>Clicks</th>
+                  <th>Conversions</th>
+                  <th>Click Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topProducts.map((product: any) => (
+                  <tr key={product.product_id}>
+                    <td>{product.product_name}</td>
+                    <td>{product.recommendations}</td>
+                    <td>{product.clicks}</td>
+                    <td>{product.conversions}</td>
+                    <td>{product.click_rate}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1179,7 +1242,7 @@ const UserSegmentationManagement = () => {
   const { data: segmentPerformance, isLoading: performanceLoading } =
     useGetSegmentPerformanceQuery({});
 
-  const [refreshSegments] = useRefreshSegmentsMutation();
+  const [refreshSegments] = useRecalculateSegmentMutation();
 
   const handleRefreshSegments = async () => {
     try {
@@ -1230,7 +1293,7 @@ const UserSegmentationManagement = () => {
         {[
           {
             title: "Total Segments",
-            value: userSegments?.length || 0,
+            value: userSegments.data.length || 0,
             icon: Users,
             color: "primary",
           },
@@ -1328,7 +1391,7 @@ const ActiveSegmentsCard = ({ userSegments }) => {
   const [showAllActive, setShowAllActive] = useState(false);
   const visibleSegments = showAllActive
     ? userSegments
-    : userSegments?.slice(0, 3) || [];
+    : userSegments?.data?.slice(0, 3) || [];
 
   return (
     <div className="card bg-base-100 border border-base-300 shadow-lg rounded-xl">
@@ -1388,7 +1451,7 @@ const ActiveSegmentsCard = ({ userSegments }) => {
           </AnimatePresence>
         </div>
 
-        {userSegments?.length > 3 && (
+        {userSegments.data.length > 3 && (
           <div className="mt-4 flex justify-center">
             <button
               onClick={() => setShowAllActive(!showAllActive)}
@@ -1402,7 +1465,7 @@ const ActiveSegmentsCard = ({ userSegments }) => {
               ) : (
                 <>
                   <ChevronDown className="w-4 h-4 mr-2" />
-                  Show {userSegments.length - 3} More
+                  Show {userSegments.data.length - 3} More
                 </>
               )}
             </button>
@@ -1921,29 +1984,22 @@ const MLManagementDashboard = () => {
           ML Management Center
         </h1>
         <p className="text-base-content/70 text-lg">
-          Manage your machine learning models, recommendations, and user
-          segmentation
+          Manage your machine learning models 
         </p>
+        <div className="flex items-center gap-4 mt-4">
+          
+          <div className="badge badge-success badge-lg">
+            <Activity className="w-4 h-4 mr-2" />
+            Real-time Monitoring
+          </div>
+          <div className="badge badge-info badge-lg">
+            <Target className="w-4 h-4 mr-2" />
+            AI-Powered
+          </div>
+        </div>
       </motion.div>
 
-      {/* Navigation Tabs */}
-      {/* <div className="tabs tabs-boxed mb-8 bg-base-200 p-1">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`tab tab-lg flex items-center gap-2 ${
-                activeTab === tab.id ? "tab-active" : ""
-              }`}
-            >
-              <Icon className="w-5 h-5" />
-              {tab.name}
-            </button>
-          );
-        })}
-      </div> */}
+     
 
       {/* Tab Content */}
       <AnimatePresence mode="wait">
@@ -1954,9 +2010,7 @@ const MLManagementDashboard = () => {
           exit={{ opacity: 0, x: -20 }}
           transition={{ duration: 0.2 }}
         >
-          {activeTab === "models" && <MLModelManagement />}
-          {/* {activeTab === "recommendations" && <RecommendationManagement />}
-          {activeTab === "segmentation" && <UserSegmentationManagement />} */}
+          <MLModelManagement />
         </motion.div>
       </AnimatePresence>
     </div>

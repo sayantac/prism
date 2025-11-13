@@ -1,10 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // @ts-nocheck
-import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
   AlertCircle,
-  BarChart3,
   Brain,
   CheckCircle,
   Clock,
@@ -15,14 +13,24 @@ import {
   MousePointer,
   Package,
   RefreshCw,
+  Search,
   Server,
   ShoppingCart,
   Target,
   TrendingDown,
   TrendingUp,
   Users,
-  Zap,
+  Zap
 } from "lucide-react";
+import {
+  useGetAdminDashboardQuery,
+  useGetMlConfigsQuery,
+  useGetRevenueDataQuery,
+  useGetSegmentPerformanceQuery,
+  useGetSystemStatusQuery,
+  useGetUserActivityDataQuery
+} from "@/store/api/adminApi";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
@@ -39,14 +47,7 @@ import {
   YAxis,
 } from "recharts";
 import type { ValueType } from "recharts/types/component/DefaultTooltipContent";
-import {
-  useGetAdminDashboardQuery,
-  useGetMlConfigsQuery,
-  useGetRecommendationPerformanceQuery,
-  useGetSegmentPerformanceQuery,
-  useGetSystemStatusQuery,
-} from "@/store/api/adminApi";
-
+import {UserBehaviorSummary} from "../admin/dashboard/UserBehaviorSummary";
 // Helper component for explanations
 interface ChartExplanationProps {
   title: string;
@@ -290,7 +291,7 @@ const UserSegmentChart = ({ className = "" }) => {
                     label={({ segment_name, percent }) =>
                       `${segment_name.replace(/_/g, " ")}: ${(
                         percent * 100
-                      ).toFixed(0)}%`
+                      )?.toFixed(0)}%`
                     }
                     labelLine={false}
                   >
@@ -587,21 +588,50 @@ const MetricCard = ({
 // Enhanced AI Metrics Chart
 const AIMetricsChart = ({ className = "" }) => {
   const {
-    data: recPerformance,
-    isLoading: recLoading,
+    data: dashboardData,
+    isLoading: dashboardLoading,
     refetch,
-  } = useGetRecommendationPerformanceQuery({ days: 90 });
+  } = useGetAdminDashboardQuery({ days: 90 });
 
   const { data: mlConfigs } = useGetMlConfigsQuery({});
 
-  // Process real performance data
+  // Process real performance data from dashboard
   const processedData = useMemo(() => {
-    if (!recPerformance?.length)
-      return { algorithms: [], totals: {}, activeAlgorithms: [] };
+    const algorithmPerformance = dashboardData?.recommendations?.algorithm_performance || [];
+    
+    if (!algorithmPerformance?.length)
+      return {
+        activeAlgorithms: [],
+        inactiveAlgorithms: [],
+        totals: {},
+        insights: {},
+      };
 
-    // Filter out algorithms with no performance data
-    const activeAlgorithms = recPerformance.filter(
+    // Calculate overall metrics from algorithms
+    const totalRecommendations = algorithmPerformance.reduce((sum, alg) => sum + alg.total_recommendations, 0);
+    const totalClicks = algorithmPerformance.reduce((sum, alg) => sum + Math.round((alg.click_rate / 100) * alg.total_recommendations), 0);
+    const totalConversions = algorithmPerformance.reduce((sum, alg) => sum + Math.round((alg.conversion_rate / 100) * alg.total_recommendations), 0);
+    const overallCTR = totalRecommendations > 0 ? (totalClicks / totalRecommendations) * 100 : 0;
+    const overallConversionRate = totalClicks > 0 ? (totalConversions / totalClicks) * 100 : 0;
+
+    // Map backend data to component expectations
+    const mappedAlgorithms = algorithmPerformance.map((alg: any) => ({
+      algorithm: alg.algorithm,
+      impressions: alg.total_recommendations,
+      clicks: Math.round((alg.click_rate / 100) * alg.total_recommendations),
+      conversions: Math.round((alg.conversion_rate / 100) * alg.total_recommendations),
+      revenue_impact: Math.round((alg.conversion_rate / 100) * alg.total_recommendations * (dashboardData?.orders?.average_order_value || 168.19)),
+      click_through_rate: alg.click_rate,
+      conversion_rate: alg.conversion_rate,
+      average_score: alg.average_score,
+    }));
+
+    // Split algorithms by performance
+    const activeAlgorithms = mappedAlgorithms.filter(
       (alg) => alg.impressions > 0
+    );
+    const inactiveAlgorithms = mappedAlgorithms.filter(
+      (alg) => alg.impressions === 0
     );
 
     // Calculate totals
@@ -615,35 +645,57 @@ const AIMetricsChart = ({ className = "" }) => {
       { impressions: 0, clicks: 0, conversions: 0, revenue: 0 }
     );
 
-    // Calculate averages
-    const avgCTR =
-      activeAlgorithms.reduce((sum, alg) => sum + alg.click_through_rate, 0) /
-      activeAlgorithms.length;
-    const avgConversion =
-      activeAlgorithms.reduce((sum, alg) => sum + alg.conversion_rate, 0) /
-      activeAlgorithms.length;
+    // Add overall metrics
+    totals.overallCTR = overallCTR;
+    totals.overallConversionRate = overallConversionRate;
+
+    // Calculate insights
+    const insights = activeAlgorithms.length > 0 ? {
+      bestCTR: activeAlgorithms.reduce((best, current) =>
+        current.click_through_rate > best.click_through_rate ? current : best
+      ),
+      bestConversion: activeAlgorithms.reduce((best, current) =>
+        current.conversion_rate > best.conversion_rate ? current : best
+      ),
+      bestRevenue: activeAlgorithms.reduce((best, current) =>
+        current.revenue_impact > best.revenue_impact ? current : best
+      ),
+      mostUsed: activeAlgorithms.reduce((best, current) =>
+        current.impressions > best.impressions ? current : best
+      ),
+      avgCTR:
+        activeAlgorithms.reduce((sum, alg) => sum + alg.click_through_rate, 0) /
+        activeAlgorithms.length,
+      avgConversion:
+        activeAlgorithms.reduce((sum, alg) => sum + alg.conversion_rate, 0) /
+        activeAlgorithms.length,
+    } : {
+      bestCTR: null,
+      bestConversion: null,
+      bestRevenue: null,
+      mostUsed: null,
+      avgCTR: 0,
+      avgConversion: 0,
+    };
 
     return {
-      algorithms: activeAlgorithms,
-      totals: {
-        ...totals,
-        avgCTR,
-        avgConversion,
-      },
       activeAlgorithms,
+      inactiveAlgorithms,
+      totals,
+      insights,
     };
-  }, [recPerformance]);
+  }, [dashboardData]);
 
   // Algorithm comparison data for bar chart
   const algorithmComparisonData = useMemo(() => {
-    if (!processedData.activeAlgorithms?.length) return [];
+    if (!Array.isArray(processedData.activeAlgorithms) || !processedData.activeAlgorithms.length) return [];
 
     return processedData.activeAlgorithms
       .sort((a, b) => b.click_through_rate - a.click_through_rate)
       .map((alg) => ({
         algorithm: alg.algorithm.replace("_", " ").toUpperCase(),
-        ctr: parseFloat(alg.click_through_rate.toFixed(2)),
-        conversion: parseFloat(alg.conversion_rate.toFixed(2)),
+        ctr: parseFloat(alg.click_through_rate?.toFixed(2)),
+        conversion: parseFloat(alg.conversion_rate?.toFixed(2)),
         impressions: alg.impressions,
         revenue: alg.revenue_impact,
       }));
@@ -651,9 +703,9 @@ const AIMetricsChart = ({ className = "" }) => {
 
   // Revenue distribution for pie chart
   const revenueDistribution = useMemo(() => {
-    if (!processedData.activeAlgorithms?.length) return [];
+  if (!Array.isArray(processedData.activeAlgorithms) || !processedData.activeAlgorithms.length) return [];
 
-    const colors = [
+  const colors = [
       "#3b82f6",
       "#10b981",
       "#f59e0b",
@@ -672,11 +724,11 @@ const AIMetricsChart = ({ className = "" }) => {
         percentage: (
           (alg.revenue_impact / processedData.totals.revenue) *
           100
-        ).toFixed(1),
+        )?.toFixed(1),
       }));
   }, [processedData]);
 
-  if (recLoading) {
+  if (dashboardLoading) {
     return (
       <div className="flex items-center justify-center h-[350px]">
         <div className="loading loading-spinner loading-lg text-primary"></div>
@@ -729,10 +781,10 @@ const AIMetricsChart = ({ className = "" }) => {
         <div className="stat bg-primary/10 rounded-lg p-3 border border-primary/20">
           <div className="stat-title text-xs flex items-center gap-1">
             <MousePointer className="w-3 h-3" />
-            Avg CTR
+            Overall CTR
           </div>
           <div className="stat-value text-primary text-lg">
-            {processedData.totals.avgCTR?.toFixed(2) || 0}%
+            {processedData.totals.overallCTR?.toFixed(2) || 0}%
           </div>
           <div className="stat-desc text-xs">
             {processedData.totals.clicks?.toLocaleString() || 0} total clicks
@@ -742,10 +794,10 @@ const AIMetricsChart = ({ className = "" }) => {
         <div className="stat bg-success/10 rounded-lg p-3 border border-success/20">
           <div className="stat-title text-xs flex items-center gap-1">
             <CheckCircle className="w-3 h-3" />
-            Avg Conversion
+            Overall Conversion
           </div>
           <div className="stat-value text-success text-lg">
-            {processedData.totals.avgConversion?.toFixed(2) || 0}%
+            {processedData.totals.overallConversionRate?.toFixed(2) || 0}%
           </div>
           <div className="stat-desc text-xs">
             {processedData.totals.conversions?.toLocaleString() || 0} purchases
@@ -768,7 +820,7 @@ const AIMetricsChart = ({ className = "" }) => {
         <div className="stat bg-warning/10 rounded-lg p-3 border border-warning/20">
           <div className="stat-title text-xs flex items-center gap-1">
             <DollarSign className="w-3 h-3" />
-            Total Revenue
+            Total Revenue Impact
           </div>
           <div className="stat-value text-warning text-lg">
             ${Math.round(processedData.totals.revenue || 0).toLocaleString()}
@@ -979,7 +1031,7 @@ const AIMetricsChart = ({ className = "" }) => {
                             : "badge-error"
                         }`}
                       >
-                        {alg.click_through_rate.toFixed(2)}%
+                        {alg.click_through_rate?.toFixed(2)}%
                       </span>
                     </td>
                     <td>{alg.conversions.toLocaleString()}</td>
@@ -993,7 +1045,7 @@ const AIMetricsChart = ({ className = "" }) => {
                             : "badge-error"
                         }`}
                       >
-                        {alg.conversion_rate.toFixed(2)}%
+                        {alg.conversion_rate?.toFixed(2)}%
                       </span>
                     </td>
                     <td className="font-semibold text-success">
@@ -1029,17 +1081,21 @@ const AIMetricsChart = ({ className = "" }) => {
                 current.revenue_impact > best.revenue_impact ? current : best
             );
 
+            const searchCTR = dashboardData?.search?.click_through_rate || 0;
+            const recCTR = processedData.totals.overallCTR || 0;
+            const ctrComparison = recCTR > searchCTR ? "higher" : recCTR < searchCTR ? "lower" : "equal";
+
             return [
               {
                 title: "Highest CTR",
-                value: `${bestCTR.click_through_rate.toFixed(2)}%`,
+                value: `${bestCTR.click_through_rate?.toFixed(2)}%`,
                 algorithm: bestCTR.algorithm.replace("_", " ").toUpperCase(),
                 color: "text-primary",
                 bg: "bg-primary/10",
               },
               {
                 title: "Best Conversion",
-                value: `${bestConversion.conversion_rate.toFixed(2)}%`,
+                value: `${bestConversion.conversion_rate?.toFixed(2)}%`,
                 algorithm: bestConversion.algorithm
                   .replace("_", " ")
                   .toUpperCase(),
@@ -1056,6 +1112,27 @@ const AIMetricsChart = ({ className = "" }) => {
                   .toUpperCase(),
                 color: "text-warning",
                 bg: "bg-warning/10",
+              },
+              {
+                title: "CTR vs Search",
+                value: `${Math.abs(recCTR - searchCTR).toFixed(2)}% ${ctrComparison}`,
+                algorithm: `Rec: ${recCTR.toFixed(2)}% | Search: ${searchCTR.toFixed(2)}%`,
+                color: recCTR > searchCTR ? "text-green-600" : "text-red-600",
+                bg: recCTR > searchCTR ? "bg-green-100" : "bg-red-100",
+              },
+              {
+                title: "Total Recommendations",
+                value: processedData.totals.impressions?.toLocaleString() || "0",
+                algorithm: "Across all algorithms",
+                color: "text-blue-600",
+                bg: "bg-blue-100",
+              },
+              {
+                title: "Revenue Efficiency",
+                value: processedData.totals.impressions > 0 ? `$${(processedData.totals.revenue / processedData.totals.impressions * 1000).toFixed(2)}/1K` : "$0",
+                algorithm: "Revenue per 1000 impressions",
+                color: "text-purple-600",
+                bg: "bg-purple-100",
               },
             ];
           })().map((insight, index) => (
@@ -1074,22 +1151,84 @@ const AIMetricsChart = ({ className = "" }) => {
           ))}
         </div>
       </div>
+
+      {/* Search Performance Section */}
+      {dashboardData?.search && (
+        <div className="bg-base-100 border border-base-300 rounded-lg p-4 mt-6">
+          <h4 className="font-semibold mb-4 flex items-center gap-2">
+            <Zap className="w-5 h-5 text-secondary" />
+            Search Performance
+          </h4>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <div className="stat bg-blue-500/10 rounded-lg p-3 border border-blue-500/20">
+              <div className="stat-title text-xs flex items-center gap-1">
+                <Search className="w-3 h-3" />
+                Total Searches
+              </div>
+              <div className="stat-value text-blue-500 text-lg">
+                {dashboardData.search.total_searches?.toLocaleString() || 0}
+              </div>
+              <div className="stat-desc text-xs">
+                {dashboardData.search.unique_queries?.toLocaleString() || 0} unique queries
+              </div>
+            </div>
+
+            <div className="stat bg-green-500/10 rounded-lg p-3 border border-green-500/20">
+              <div className="stat-title text-xs flex items-center gap-1">
+                <MousePointer className="w-3 h-3" />
+                Search CTR
+              </div>
+              <div className="stat-value text-green-500 text-lg">
+                {dashboardData.search.click_through_rate?.toFixed(2) || 0}%
+              </div>
+              <div className="stat-desc text-xs">Click-through rate</div>
+            </div>
+
+            <div className="stat bg-purple-500/10 rounded-lg p-3 border border-purple-500/20">
+              <div className="stat-title text-xs flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                Response Time
+              </div>
+              <div className="stat-value text-purple-500 text-lg">
+                {dashboardData.search.average_response_time_ms?.toFixed(0) || 0}ms
+              </div>
+              <div className="stat-desc text-xs">Average response time</div>
+            </div>
+
+            <div className="stat bg-red-500/10 rounded-lg p-3 border border-red-500/20">
+              <div className="stat-title text-xs flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                Zero Results
+              </div>
+              <div className="stat-value text-red-500 text-lg">
+                {dashboardData.search.zero_result_rate?.toFixed(2) || 0}%
+              </div>
+              <div className="stat-desc text-xs">Queries with no results</div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
 
 const RecommendationPerformanceAnalytics = ({ className = "" }) => {
   const {
-    data: recPerformance,
-    isLoading,
+    data: dashboardData,
+    isLoading: dashboardLoading,
     refetch,
-  } = useGetRecommendationPerformanceQuery({ days: 90 });
+  } = useGetAdminDashboardQuery({ days: 90 });
+
+  const { data: revenueData } = useGetUserActivityDataQuery();
 
   const { data: mlConfigs } = useGetMlConfigsQuery({});
 
-  // Process real performance data
+  // Process real performance data from dashboard
   const processedData = useMemo(() => {
-    if (!recPerformance?.length)
+    const algorithmPerformance = dashboardData?.recommendations?.algorithm_performance || [];
+    
+    if (!algorithmPerformance?.length)
       return {
         activeAlgorithms: [],
         inactiveAlgorithms: [],
@@ -1097,11 +1236,30 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
         insights: {},
       };
 
+    // Calculate overall metrics from algorithms
+    const totalRecommendations = algorithmPerformance.reduce((sum, alg) => sum + alg.total_recommendations, 0);
+    const totalClicks = algorithmPerformance.reduce((sum, alg) => sum + Math.round((alg.click_rate / 100) * alg.total_recommendations), 0);
+    const totalConversions = algorithmPerformance.reduce((sum, alg) => sum + Math.round((alg.conversion_rate / 100) * alg.total_recommendations), 0);
+    const overallCTR = totalRecommendations > 0 ? (totalClicks / totalRecommendations) * 100 : 0;
+    const overallConversionRate = totalClicks > 0 ? (totalConversions / totalClicks) * 100 : 0;
+
+    // Map backend data to component expectations
+    const mappedAlgorithms = algorithmPerformance.map((alg: any) => ({
+      algorithm: alg.algorithm,
+      impressions: alg.total_recommendations,
+      clicks: Math.round((alg.click_rate / 100) * alg.total_recommendations),
+      conversions: Math.round((alg.conversion_rate / 100) * alg.total_recommendations),
+      revenue_impact: Math.round((alg.conversion_rate / 100) * alg.total_recommendations * (dashboardData?.orders?.average_order_value || 168.19)),
+      click_through_rate: alg.click_rate,
+      conversion_rate: alg.conversion_rate,
+      average_score: alg.average_score,
+    }));
+
     // Split algorithms by performance
-    const activeAlgorithms = recPerformance.filter(
+    const activeAlgorithms = mappedAlgorithms.filter(
       (alg) => alg.impressions > 0
     );
-    const inactiveAlgorithms = recPerformance.filter(
+    const inactiveAlgorithms = mappedAlgorithms.filter(
       (alg) => alg.impressions === 0
     );
 
@@ -1116,8 +1274,12 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
       { impressions: 0, clicks: 0, conversions: 0, revenue: 0 }
     );
 
+    // Add overall metrics
+    totals.overallCTR = overallCTR;
+    totals.overallConversionRate = overallConversionRate;
+
     // Calculate insights
-    const insights = {
+    const insights = activeAlgorithms.length > 0 ? {
       bestCTR: activeAlgorithms.reduce((best, current) =>
         current.click_through_rate > best.click_through_rate ? current : best
       ),
@@ -1136,6 +1298,13 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
       avgConversion:
         activeAlgorithms.reduce((sum, alg) => sum + alg.conversion_rate, 0) /
         activeAlgorithms.length,
+    } : {
+      bestCTR: null,
+      bestConversion: null,
+      bestRevenue: null,
+      mostUsed: null,
+      avgCTR: 0,
+      avgConversion: 0,
     };
 
     return {
@@ -1144,23 +1313,27 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
       totals,
       insights,
     };
-  }, [recPerformance]);
+  }, [dashboardData]);
 
-  // Chart data with cleaned algorithm names
-  const chartData = useMemo(() => {
-    return processedData.activeAlgorithms.map((alg) => ({
-      ...alg,
-      algorithmDisplay: alg.algorithm
-        .replace(/_/g, " ")
-        .replace(/v\d+/g, "")
-        .trim()
-        .toUpperCase(),
-      originalAlgorithm: alg.algorithm,
-    }));
-  }, [processedData.activeAlgorithms]);
+  // Algorithm comparison data for bar chart
+  const algorithmComparisonData = useMemo(() => {
+    if (!processedData.activeAlgorithms?.length) return [];
+
+    return processedData.activeAlgorithms
+      .sort((a, b) => b.click_through_rate - a.click_through_rate)
+      .map((alg) => ({
+        algorithm: alg.algorithm.replace("_", " ").toUpperCase(),
+        ctr: parseFloat(alg.click_through_rate?.toFixed(2)),
+        conversion: parseFloat(alg.conversion_rate?.toFixed(2)),
+        impressions: alg.impressions,
+        revenue: alg.revenue_impact,
+      }));
+  }, [processedData]);
 
   // Revenue distribution for pie chart
   const revenueDistribution = useMemo(() => {
+    if (!processedData.activeAlgorithms?.length) return [];
+
     const colors = [
       "#3b82f6",
       "#10b981",
@@ -1180,13 +1353,13 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
         percentage: (
           (alg.revenue_impact / processedData.totals.revenue) *
           100
-        ).toFixed(1),
+        )?.toFixed(1),
       }));
   }, [processedData]);
 
-  if (isLoading) {
+  if (dashboardLoading) {
     return (
-      <div className="flex items-center justify-center h-[400px]">
+      <div className="flex items-center justify-center h-[350px]">
         <div className="loading loading-spinner loading-lg text-primary"></div>
       </div>
     );
@@ -1195,7 +1368,7 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
   if (!processedData.activeAlgorithms?.length) {
     return (
       <div className="w-full border border-base-300 rounded-lg p-8 text-center">
-        <BarChart3 className="w-12 h-12 text-base-content/30 mx-auto mb-4" />
+        <Brain className="w-12 h-12 text-base-content/30 mx-auto mb-4" />
         <h3 className="text-lg font-semibold text-base-content/70 mb-2">
           No Performance Data
         </h3>
@@ -1210,118 +1383,95 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
   }
 
   return (
-    <div className={`w-full space-y-6 ${className}`}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Activity className="w-6 h-6 text-primary" />
-            Recommendation Performance Analytics
-          </h2>
-          <p className="text-base-content/70 mt-1">
-            Real-time performance metrics across all recommendation algorithms
-          </p>
-        </div>
-        <button onClick={refetch} className="btn btn-outline btn-sm">
-          <Eye className="w-4 h-4 mr-2" />
-          Refresh
-        </button>
-      </div>
-
-      {/* Summary Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="stat bg-info/10 rounded-lg p-3 border border-info/20">
-          <div className="stat-title text-xs flex items-center gap-1">
-            <Brain className="w-3 h-3" />
-            Active Algorithms
+    <div className={`w-full ${className} relative`}>
+      <ChartExplanation
+        title="AI Model Performance Analytics"
+        description="Real performance metrics from your recommendation algorithms. Shows actual clicks, conversions, and revenue impact from each algorithm."
+      >
+        <div className="space-y-2 text-xs">
+          <div className="flex items-center gap-2">
+            <Eye className="w-3 h-3 text-info" />
+            <span>Impressions: Total recommendation views</span>
           </div>
-          <div className="stat-value text-info text-lg">
-            {processedData.activeAlgorithms.length}
+          <div className="flex items-center gap-2">
+            <MousePointer className="w-3 h-3 text-primary" />
+            <span>CTR: Percentage of clicks on recommendations</span>
           </div>
-          <div className="stat-desc text-xs">
-            {processedData.inactiveAlgorithms.length} inactive
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-3 h-3 text-success" />
+            <span>Conversion: Percentage leading to purchases</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-3 h-3 text-warning" />
+            <span>Revenue: Total sales from recommendations</span>
           </div>
         </div>
+      </ChartExplanation>
 
+      {/* Real Performance Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="stat bg-primary/10 rounded-lg p-3 border border-primary/20">
           <div className="stat-title text-xs flex items-center gap-1">
-            <Eye className="w-3 h-3" />
-            Total Impressions
+            <MousePointer className="w-3 h-3" />
+            Overall CTR
           </div>
           <div className="stat-value text-primary text-lg">
-            {processedData.totals.impressions?.toLocaleString() || 0}
+            {processedData.totals.overallCTR?.toFixed(2) || 0}%
           </div>
           <div className="stat-desc text-xs">
-            {processedData.totals.clicks?.toLocaleString() || 0} clicks
+            {processedData.totals.clicks?.toLocaleString() || 0} total clicks
           </div>
         </div>
 
         <div className="stat bg-success/10 rounded-lg p-3 border border-success/20">
           <div className="stat-title text-xs flex items-center gap-1">
-            <MousePointer className="w-3 h-3" />
-            Avg CTR
+            <CheckCircle className="w-3 h-3" />
+            Overall Conversion
           </div>
           <div className="stat-value text-success text-lg">
-            {processedData.insights.avgCTR?.toFixed(1) || 0}%
+            {processedData.totals.overallConversionRate?.toFixed(2) || 0}%
           </div>
           <div className="stat-desc text-xs">
-            Best:{" "}
-            {processedData.insights.bestCTR?.click_through_rate.toFixed(1)}%
+            {processedData.totals.conversions?.toLocaleString() || 0} purchases
+          </div>
+        </div>
+
+        <div className="stat bg-info/10 rounded-lg p-3 border border-info/20">
+          <div className="stat-title text-xs flex items-center gap-1">
+            <Eye className="w-3 h-3" />
+            Total Impressions
+          </div>
+          <div className="stat-value text-info text-lg">
+            {processedData.totals.impressions?.toLocaleString() || 0}
+          </div>
+          <div className="stat-desc text-xs">
+            Across {processedData.activeAlgorithms.length} algorithms
           </div>
         </div>
 
         <div className="stat bg-warning/10 rounded-lg p-3 border border-warning/20">
           <div className="stat-title text-xs flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" />
-            Avg Conversion
+            <DollarSign className="w-3 h-3" />
+            Total Revenue Impact
           </div>
           <div className="stat-value text-warning text-lg">
-            {processedData.insights.avgConversion?.toFixed(1) || 0}%
-          </div>
-          <div className="stat-desc text-xs">
-            {processedData.totals.conversions?.toLocaleString() || 0} sales
-          </div>
-        </div>
-
-        <div className="stat bg-accent/10 rounded-lg p-3 border border-accent/20">
-          <div className="stat-title text-xs flex items-center gap-1">
-            <DollarSign className="w-3 h-3" />
-            Total Revenue
-          </div>
-          <div className="stat-value text-accent text-lg">
             ${Math.round(processedData.totals.revenue || 0).toLocaleString()}
           </div>
           <div className="stat-desc text-xs">From recommendations</div>
         </div>
       </div>
 
-      {/* Main Performance Chart */}
-      <div className="card bg-base-100 border border-base-300 shadow-lg relative">
-        <ChartExplanation
-          title="Algorithm Performance Comparison"
-          description="Compare how different AI recommendation algorithms perform. Higher CTR and conversion rates indicate better performance."
-        >
-          <div className="space-y-2 text-xs">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-info rounded"></div>
-              <span>Impressions (Blue bars) - Total views</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <MousePointer className="w-3 h-3 text-success" />
-              <span>CTR (Green line) - Click percentage</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-3 h-3 text-warning" />
-              <span>Conversion (Orange line) - Purchase percentage</span>
-            </div>
-          </div>
-        </ChartExplanation>
-
-        <div className="card-body">
-          <ResponsiveContainer width="100%" height={400}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Algorithm Performance Comparison */}
+        <div className="bg-base-100 border border-base-300 rounded-lg p-4">
+          <h4 className="font-semibold mb-4 flex items-center gap-2">
+            <Target className="w-5 h-5 text-primary" />
+            Algorithm Performance Comparison
+          </h4>
+          <ResponsiveContainer width="100%" height={300}>
             <ComposedChart
-              data={chartData}
-              margin={{ top: 20, right: 30, left: 0, bottom: 60 }}
+              data={algorithmComparisonData}
+              margin={{ top: 10, right: 30, left: 0, bottom: 50 }}
             >
               <CartesianGrid
                 strokeDasharray="3 3"
@@ -1329,11 +1479,11 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
                 strokeOpacity={0.5}
               />
               <XAxis
-                dataKey="algorithmDisplay"
+                dataKey="algorithm"
                 tick={{ fontSize: 10, fill: "#64748b" }}
                 angle={-45}
                 textAnchor="end"
-                height={80}
+                height={60}
                 interval={0}
               />
               <YAxis
@@ -1362,262 +1512,339 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
                   borderRadius: "8px",
                   boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                 }}
-                formatter={(value, name) => {
-                  if (name.includes("Rate") || name.includes("CTR")) {
-                    return [`${value}%`, name];
+                formatter={(value: ValueType, name: any) => {
+                  const nameStr = String(name);
+                  const numValue = typeof value === 'number' ? value : parseFloat(String(value));
+                  
+                  if (
+                    nameStr.includes("Rate") ||
+                    nameStr.includes("CTR") ||
+                    nameStr.includes("conversion")
+                  ) {
+                    return [`${numValue}%`, nameStr];
                   }
-                  if (name === "Revenue Impact") {
-                    return [`$${Math.round(value).toLocaleString()}`, name];
+                  if (nameStr === "Revenue") {
+                    return [`$${Math.round(numValue).toLocaleString()}`, nameStr];
                   }
-                  return [value.toLocaleString(), name];
+                  return [numValue.toLocaleString(), nameStr];
                 }}
-                labelStyle={{ color: "#1e293b", fontWeight: "500" }}
               />
               <Bar
                 yAxisId="right"
                 dataKey="impressions"
                 fill="#60a5fa"
-                fillOpacity={0.7}
+                fillOpacity={0.6}
                 name="Impressions"
                 radius={[2, 2, 0, 0]}
               />
               <Line
                 yAxisId="left"
                 type="monotone"
-                dataKey="click_through_rate"
+                dataKey="ctr"
                 stroke="#10b981"
                 strokeWidth={3}
-                name="CTR (%)"
-                dot={{ r: 5, fill: "#10b981" }}
+                name="Click-through Rate"
+                dot={{ r: 4, fill: "#10b981" }}
               />
               <Line
                 yAxisId="left"
                 type="monotone"
-                dataKey="conversion_rate"
+                dataKey="conversion"
                 stroke="#f59e0b"
                 strokeWidth={3}
-                name="Conversion Rate (%)"
-                dot={{ r: 5, fill: "#f59e0b" }}
+                name="Conversion Rate"
+                dot={{ r: 4, fill: "#f59e0b" }}
               />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-      </div>
 
-      {/* Secondary Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Revenue Distribution */}
-        <div className="card bg-base-100 border border-base-300 shadow-lg">
-          <div className="card-body">
-            <h4 className="font-semibold mb-4 flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-warning" />
-              Revenue Distribution by Algorithm
-            </h4>
-            {revenueDistribution.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={200}>
-                  <PieChart>
-                    <Pie
-                      data={revenueDistribution}
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={70}
-                      fill="#8884d8"
-                      dataKey="value"
-                      label={({ percentage }) => `${percentage}%`}
-                    >
-                      {revenueDistribution.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value) => [
-                        `$${Math.round(value).toLocaleString()}`,
+        <div className="bg-base-100 border border-base-300 rounded-lg p-4">
+          <h4 className="font-semibold mb-4 flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-warning" />
+            Revenue Distribution by Algorithm
+          </h4>
+          {revenueDistribution.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={revenueDistribution}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={70}
+                    fill="#8884d8"
+                    dataKey="value"
+                    label={({ percentage }) => `${percentage}%`}
+                  >
+                    {revenueDistribution.map((entry: any, index: number) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: ValueType) => {
+                      const numValue = typeof value === 'number' ? value : parseFloat(String(value));
+                      return [
+                        `$${Math.round(numValue).toLocaleString()}`,
                         "Revenue",
-                      ]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                      ];
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
 
-                <div className="space-y-2">
-                  {revenueDistribution.slice(0, 3).map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded"
-                          style={{ backgroundColor: item.color }}
-                        />
-                        <span className="font-medium">{item.name}</span>
-                      </div>
-                      <span className="text-base-content/70">
-                        ${Math.round(item.value).toLocaleString()}
-                      </span>
+              {/* Revenue Legend */}
+              <div className="space-y-2 mt-4">
+                {revenueDistribution.map((item: any, index: number) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span className="font-medium">{item.name}</span>
                     </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-center h-[200px] text-base-content/50">
-                <p>No revenue data available</p>
+                    <span className="text-base-content/70">
+                      ${Math.round(item.value).toLocaleString()} (
+                      {item.percentage}%)
+                    </span>
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Performance Insights */}
-        <div className="card bg-base-100 border border-base-300 shadow-lg">
-          <div className="card-body">
-            <h4 className="font-semibold mb-4 flex items-center gap-2">
-              <Target className="w-5 h-5 text-info" />
-              Top Performers
-            </h4>
-            <div className="space-y-4">
-              <div className="bg-success/10 rounded-lg p-3 border border-success/20">
-                <h5 className="font-medium text-sm mb-1">Highest CTR</h5>
-                <p className="text-success text-lg font-bold">
-                  {processedData.insights.bestCTR?.click_through_rate.toFixed(
-                    2
-                  )}
-                  %
-                </p>
-                <p className="text-xs text-base-content/70">
-                  {processedData.insights.bestCTR?.algorithm
-                    .replace("_", " ")
-                    .toUpperCase()}
-                </p>
-              </div>
-
-              <div className="bg-warning/10 rounded-lg p-3 border border-warning/20">
-                <h5 className="font-medium text-sm mb-1">Best Conversion</h5>
-                <p className="text-warning text-lg font-bold">
-                  {processedData.insights.bestConversion?.conversion_rate.toFixed(
-                    2
-                  )}
-                  %
-                </p>
-                <p className="text-xs text-base-content/70">
-                  {processedData.insights.bestConversion?.algorithm
-                    .replace("_", " ")
-                    .toUpperCase()}
-                </p>
-              </div>
-
-              <div className="bg-primary/10 rounded-lg p-3 border border-primary/20">
-                <h5 className="font-medium text-sm mb-1">Highest Revenue</h5>
-                <p className="text-primary text-lg font-bold">
-                  $
-                  {Math.round(
-                    processedData.insights.bestRevenue?.revenue_impact || 0
-                  ).toLocaleString()}
-                </p>
-                <p className="text-xs text-base-content/70">
-                  {processedData.insights.bestRevenue?.algorithm
-                    .replace("_", " ")
-                    .toUpperCase()}
-                </p>
-              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-[200px] text-base-content/50">
+              <p>No revenue data available</p>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Detailed Performance Table */}
-      <div className="card bg-base-100 border border-base-300 shadow-lg">
-        <div className="card-body">
-          <h4 className="font-semibold mb-4 flex items-center gap-2">
-            <Brain className="w-5 h-5 text-secondary" />
-            Detailed Algorithm Performance
-          </h4>
-          <div className="overflow-x-auto">
-            <table className="table table-xs w-full">
-              <thead>
-                <tr>
-                  <th>Algorithm</th>
-                  <th>Impressions</th>
-                  <th>Clicks</th>
-                  <th>CTR</th>
-                  <th>Conversions</th>
-                  <th>Conv. Rate</th>
-                  <th>Revenue Impact</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {processedData.activeAlgorithms
-                  .sort((a, b) => b.revenue_impact - a.revenue_impact)
-                  .map((alg, index) => (
-                    <tr key={index} className="hover:bg-base-200">
-                      <td className="font-medium">
-                        {alg.algorithm.replace("_", " ").toUpperCase()}
-                      </td>
-                      <td>{alg.impressions.toLocaleString()}</td>
-                      <td>{alg.clicks.toLocaleString()}</td>
-                      <td>
-                        <span
-                          className={`badge badge-sm ${
-                            alg.click_through_rate > 25
-                              ? "badge-success"
-                              : alg.click_through_rate > 15
-                              ? "badge-warning"
-                              : "badge-error"
-                          }`}
-                        >
-                          {alg.click_through_rate.toFixed(2)}%
-                        </span>
-                      </td>
-                      <td>{alg.conversions.toLocaleString()}</td>
-                      <td>
-                        <span
-                          className={`badge badge-sm ${
-                            alg.conversion_rate > 50
-                              ? "badge-success"
-                              : alg.conversion_rate > 30
-                              ? "badge-warning"
-                              : "badge-error"
-                          }`}
-                        >
-                          {alg.conversion_rate.toFixed(2)}%
-                        </span>
-                      </td>
-                      <td className="font-semibold text-success">
-                        ${Math.round(alg.revenue_impact).toLocaleString()}
-                      </td>
-                      <td>
-                        <span className="badge badge-success badge-sm">
-                          Active
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                {processedData.inactiveAlgorithms.map((alg, index) => (
-                  <tr key={`inactive-${index}`} className="opacity-50">
+      {/* Algorithm Performance Table */}
+      <div className="bg-base-100 border border-base-300 rounded-lg p-4 mt-6">
+        <h4 className="font-semibold mb-4 flex items-center gap-2">
+          <Brain className="w-5 h-5 text-secondary" />
+          Detailed Algorithm Metrics
+        </h4>
+        <div className="overflow-x-auto">
+          <table className="table table-xs w-full">
+            <thead>
+              <tr>
+                <th>Algorithm</th>
+                <th>Impressions</th>
+                <th>Clicks</th>
+                <th>CTR</th>
+                <th>Conversions</th>
+                <th>Conv. Rate</th>
+                <th>Revenue Impact</th>
+              </tr>
+            </thead>
+            <tbody>
+              {processedData.activeAlgorithms
+                .sort((a, b) => b.revenue_impact - a.revenue_impact)
+                .map((alg, index) => (
+                  <tr key={index} className="hover:bg-base-200">
                     <td className="font-medium">
                       {alg.algorithm.replace("_", " ").toUpperCase()}
                     </td>
-                    <td
-                      colSpan={6}
-                      className="text-center text-base-content/50"
-                    >
-                      No activity recorded
-                    </td>
+                    <td>{alg.impressions.toLocaleString()}</td>
+                    <td>{alg.clicks.toLocaleString()}</td>
                     <td>
-                      <span className="badge badge-ghost badge-sm">
-                        Inactive
+                      <span
+                        className={`badge badge-sm ${
+                          alg.click_through_rate > 25
+                            ? "badge-success"
+                            : alg.click_through_rate > 15
+                            ? "badge-warning"
+                            : "badge-error"
+                        }`}
+                      >
+                        {alg.click_through_rate?.toFixed(2)}%
                       </span>
+                    </td>
+                    <td>{alg.conversions.toLocaleString()}</td>
+                    <td>
+                      <span
+                        className={`badge badge-sm ${
+                          alg.conversion_rate > 50
+                            ? "badge-success"
+                            : alg.conversion_rate > 30
+                            ? "badge-warning"
+                            : "badge-error"
+                        }`}
+                      >
+                        {alg.conversion_rate?.toFixed(2)}%
+                      </span>
+                    </td>
+                    <td className="font-semibold text-success">
+                      ${Math.round(alg.revenue_impact).toLocaleString()}
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+            </tbody>
+          </table>
         </div>
       </div>
+
+      {/* Performance Insights */}
+      <div className="bg-base-100 border border-base-300 rounded-lg p-4 mt-6">
+        <h4 className="font-semibold mb-4 flex items-center gap-2">
+          <TrendingUp className="w-5 h-5 text-info" />
+          Performance Insights
+        </h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {(() => {
+            const bestCTR = processedData.activeAlgorithms.reduce(
+              (best, current) =>
+                current.click_through_rate > best.click_through_rate
+                  ? current
+                  : best
+            );
+            const bestConversion = processedData.activeAlgorithms.reduce(
+              (best, current) =>
+                current.conversion_rate > best.conversion_rate ? current : best
+            );
+            const bestRevenue = processedData.activeAlgorithms.reduce(
+              (best, current) =>
+                current.revenue_impact > best.revenue_impact ? current : best
+            );
+
+            const searchCTR = dashboardData?.search?.click_through_rate || 0;
+            const recCTR = processedData.totals.overallCTR || 0;
+            const ctrComparison = recCTR > searchCTR ? "higher" : recCTR < searchCTR ? "lower" : "equal";
+
+            return [
+              {
+                title: "Highest CTR",
+                value: `${bestCTR.click_through_rate?.toFixed(2)}%`,
+                algorithm: bestCTR.algorithm.replace("_", " ").toUpperCase(),
+                color: "text-primary",
+                bg: "bg-primary/10",
+              },
+              {
+                title: "Best Conversion",
+                value: `${bestConversion.conversion_rate?.toFixed(2)}%`,
+                algorithm: bestConversion.algorithm
+                  .replace("_", " ")
+                  .toUpperCase(),
+                color: "text-success",
+                bg: "bg-success/10",
+              },
+              {
+                title: "Top Revenue",
+                value: `$${Math.round(
+                  bestRevenue.revenue_impact
+                ).toLocaleString()}`,
+                algorithm: bestRevenue.algorithm
+                  .replace("_", " ")
+                  .toUpperCase(),
+                color: "text-warning",
+                bg: "bg-warning/10",
+              },
+              {
+                title: "CTR vs Search",
+                value: `${Math.abs(recCTR - searchCTR).toFixed(2)}% ${ctrComparison}`,
+                algorithm: `Rec: ${recCTR.toFixed(2)}% | Search: ${searchCTR.toFixed(2)}%`,
+                color: recCTR > searchCTR ? "text-green-600" : "text-red-600",
+                bg: recCTR > searchCTR ? "bg-green-100" : "bg-red-100",
+              },
+              {
+                title: "Total Recommendations",
+                value: processedData.totals.impressions?.toLocaleString() || "0",
+                algorithm: "Across all algorithms",
+                color: "text-blue-600",
+                bg: "bg-blue-100",
+              },
+              {
+                title: "Revenue Efficiency",
+                value: processedData.totals.impressions > 0 ? `$${(processedData.totals.revenue / processedData.totals.impressions * 1000).toFixed(2)}/1K` : "$0",
+                algorithm: "Revenue per 1000 impressions",
+                color: "text-purple-600",
+                bg: "bg-purple-100",
+              },
+            ];
+          })().map((insight, index) => (
+            <div
+              key={index}
+              className={`${insight.bg} rounded-lg p-3 border border-opacity-20`}
+            >
+              <h5 className="font-medium text-sm mb-1">{insight.title}</h5>
+              <p className={`text-lg font-bold ${insight.color} mb-1`}>
+                {insight.value}
+              </p>
+              <p className="text-xs text-base-content/70">
+                {insight.algorithm}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Search Performance Section */}
+      {dashboardData?.search && (
+        <div className="bg-base-100 border border-base-300 rounded-lg p-4 mt-6">
+          <h4 className="font-semibold mb-4 flex items-center gap-2">
+            <Zap className="w-5 h-5 text-secondary" />
+            Search Performance
+          </h4>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <div className="stat bg-blue-500/10 rounded-lg p-3 border border-blue-500/20">
+              <div className="stat-title text-xs flex items-center gap-1">
+                <Search className="w-3 h-3" />
+                Total Searches
+              </div>
+              <div className="stat-value text-blue-500 text-lg">
+                {dashboardData.search.total_searches?.toLocaleString() || 0}
+              </div>
+              <div className="stat-desc text-xs">
+                {dashboardData.search.unique_queries?.toLocaleString() || 0} unique queries
+              </div>
+            </div>
+
+            <div className="stat bg-green-500/10 rounded-lg p-3 border border-green-500/20">
+              <div className="stat-title text-xs flex items-center gap-1">
+                <MousePointer className="w-3 h-3" />
+                Search CTR
+              </div>
+              <div className="stat-value text-green-500 text-lg">
+                {dashboardData.search.click_through_rate?.toFixed(2) || 0}%
+              </div>
+              <div className="stat-desc text-xs">Click-through rate</div>
+            </div>
+
+            <div className="stat bg-purple-500/10 rounded-lg p-3 border border-purple-500/20">
+              <div className="stat-title text-xs flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                Response Time
+              </div>
+              <div className="stat-value text-purple-500 text-lg">
+                {dashboardData.search.average_response_time_ms?.toFixed(0) || 0}ms
+              </div>
+              <div className="stat-desc text-xs">Average response time</div>
+            </div>
+
+            <div className="stat bg-red-500/10 rounded-lg p-3 border border-red-500/20">
+              <div className="stat-title text-xs flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                Zero Results
+              </div>
+              <div className="stat-value text-red-500 text-lg">
+                {dashboardData.search.zero_result_rate?.toFixed(2) || 0}%
+              </div>
+              <div className="stat-desc text-xs">Queries with no results</div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
+
 const RevenueChart = ({ timeRange = "30d", className = "" }) => {
   const days =
     timeRange === "7d"
@@ -1880,7 +2107,7 @@ const SystemStatusWidget = ({ className = "" }) => {
           <div className="flex items-center gap-3 p-3 bg-base-200/50 rounded-lg">
             <div
               className={`w-3 h-3 rounded-full ${
-                systemStatus?.database === "healthy"
+                systemStatus?.system_health?.database === "healthy"
                   ? "bg-success animate-pulse"
                   : "bg-error"
               }`}
@@ -1888,7 +2115,7 @@ const SystemStatusWidget = ({ className = "" }) => {
             <div>
               <div className="text-xs text-base-content/60">Database</div>
               <div className="font-medium capitalize">
-                {systemStatus?.database || "Unknown"}
+                {systemStatus?.system_health?.database || "Unknown"}
               </div>
             </div>
           </div>
@@ -1911,7 +2138,7 @@ const SystemStatusWidget = ({ className = "" }) => {
                 {systemStatus?.recent_activity?.orders_24h || 0}
               </div>
             </div>
-          </div>
+                   </div>
 
           <div className="flex items-center gap-3 p-3 bg-base-200/50 rounded-lg">
             <Users className="w-4 h-4 text-success" />
@@ -1981,7 +2208,7 @@ const AdminDashboard = () => {
           <RefreshCw className="w-4 h-4 mr-2" />
           Retry
         </button>
-      </motion.div>
+                  </motion.div>
     );
   }
 
@@ -1994,35 +2221,13 @@ const AdminDashboard = () => {
         className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4"
       >
         <div>
-          <h1 className="text-4xl font-bold text-base-content mb-2">
-            Admin Dashboard
-          </h1>
-          <p className="text-base-content/70 text-lg">
-            Monitor your store's performance and AI systems
-          </p>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className="form-control">
-            <label className="label cursor-pointer gap-2">
-              <span className="label-text font-medium">Auto-refresh</span>
-              <input
-                type="checkbox"
-                className="toggle toggle-success"
-                checked={autoRefresh}
-                onChange={(e) => setAutoRefresh(e.target.checked)}
-              />
-            </label>
-          </div>
-
           <select
-            className="select select-bordered w-full max-w-xs"
             value={timeRange}
             disabled
             onChange={(e) => setTimeRange(e.target.value)}
           >
             <option value="7d">📅 Last 7 days</option>
-            <option value="30d">📅 Last 30 days</option>
+            <option value="30d"> 📅 Last 30 days</option>
             <option value="90d">📅 Last 90 days</option>
             <option value="1y">📅 Last year</option>
           </select>
@@ -2057,7 +2262,6 @@ const AdminDashboard = () => {
             value={`${
               String(dashboardData?.revenue?.total)?.toLocaleString() || "0"
             }`}
-           
             icon={DollarSign}
             color="success"
             description="Total revenue from all completed orders"
@@ -2168,117 +2372,7 @@ const AdminDashboard = () => {
         </div>
       </motion.div>
 
-      {/* Recent Activity & Insights */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-      >
-        <h2 className="text-2xl font-semibold text-base-content mb-6 flex items-center gap-2">
-          <Clock className="w-6 h-6 text-primary" />
-          Recent Activity & Insights
-        </h2>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* AI Insights Card */}
-          <div className="card bg-gradient-to-br from-primary/5 to-primary/10 border border-primary/20 shadow-lg">
-            <div className="card-body">
-              <div className="flex items-center gap-2 mb-4">
-                <Brain className="w-5 h-5 text-primary" />
-                <h3 className="font-semibold">AI Recommendations</h3>
-              </div>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center p-3 bg-base-100/80 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <MousePointer className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-medium">
-                      Click-through Rate
-                    </span>
-                  </div>
-                  <span className="font-bold text-primary">24.8%</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-base-100/80 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-success" />
-                    <span className="text-sm font-medium">Conversion Rate</span>
-                  </div>
-                  <span className="font-bold text-success">12.3%</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-base-100/80 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="w-4 h-4 text-warning" />
-                    <span className="text-sm font-medium">Revenue Impact</span>
-                  </div>
-                  <span className="font-bold text-warning">+$45.2K</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* User Segmentation */}
-          <div className="card bg-gradient-to-br from-info/5 to-info/10 border border-info/20 shadow-lg">
-            <div className="card-body">
-              <div className="flex items-center gap-2 mb-4">
-                <Target className="w-5 h-5 text-info" />
-                <h3 className="font-semibold">User Segmentation</h3>
-              </div>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center p-3 bg-base-100/80 rounded-lg">
-                  <span className="text-sm font-medium">Champions</span>
-                  <div className="badge badge-success">145 users</div>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-base-100/80 rounded-lg">
-                  <span className="text-sm font-medium">Loyal Customers</span>
-                  <div className="badge badge-primary">324 users</div>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-base-100/80 rounded-lg">
-                  <span className="text-sm font-medium">At Risk</span>
-                  <div className="badge badge-warning">67 users</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ML Model Status */}
-          <div className="card bg-gradient-to-br from-success/5 to-success/10 border border-success/20 shadow-lg">
-            <div className="card-body">
-              <div className="flex items-center gap-2 mb-4">
-                <Zap className="w-5 h-5 text-success" />
-                <h3 className="font-semibold">ML Model Status</h3>
-              </div>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center p-3 bg-base-100/80 rounded-lg">
-                  <span className="text-sm font-medium">
-                    Recommendation Engine
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-                    <div className="badge badge-success badge-sm">Active</div>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-base-100/80 rounded-lg">
-                  <span className="text-sm font-medium">
-                    Search Enhancement
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-                    <div className="badge badge-success badge-sm">Active</div>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-base-100/80 rounded-lg">
-                  <span className="text-sm font-medium">
-                    Price Optimization
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-warning rounded-full animate-pulse"></div>
-                    <div className="badge badge-warning badge-sm">Training</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </motion.div>
+      <UserBehaviorSummary />
 
       {/* Quick Actions */}
       <motion.div
@@ -2344,5 +2438,6 @@ export {
   RevenueChart,
   SystemStatusWidget,
   UserActivityChart,
-  UserSegmentChart,
+  UserSegmentChart
 };
+

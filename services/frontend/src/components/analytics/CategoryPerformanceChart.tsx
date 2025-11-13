@@ -1,11 +1,13 @@
 import {
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
+    Cell,
+    Legend,
+    Pie,
+    PieChart,
+    ResponsiveContainer,
+    Tooltip,
 } from "recharts";
+
+// Fallback to 'any' for PieLabelRenderProps if type import fails
 
 interface CategoryPerformanceChartProps {
   data?: Array<{
@@ -19,18 +21,11 @@ interface CategoryPerformanceChartProps {
 export const CategoryPerformanceChart: React.FC<
   CategoryPerformanceChartProps
 > = ({ data, className = "" }) => {
-  const mockData = [
-    { name: "Electronics", value: 35, fill: "hsl(var(--pr))" },
-    { name: "Clothing", value: 25, fill: "hsl(var(--se))" },
-    { name: "Home & Garden", value: 20, fill: "hsl(var(--ac))" },
-    { name: "Books", value: 12, fill: "hsl(var(--in))" },
-    { name: "Others", value: 8, fill: "hsl(var(--wa))" },
-  ];
+  // Use real API data, fallback to empty array
+  const chartData = Array.isArray(data) ? data : [];
 
-  const chartData = data || mockData;
-
-  const renderLabel = (entry: any) => {
-    return `${entry.value}%`;
+  const renderLabel = (props: any) => {
+    return `${props.value}%`;
   };
 
   return (

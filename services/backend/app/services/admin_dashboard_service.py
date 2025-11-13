@@ -138,8 +138,8 @@ class AdminDashboardService:
         try:
             recent_audits = (
                 self.db.query(AuditLog)
-                .filter(AuditLog.timestamp >= datetime.utcnow() - timedelta(hours=24))
-                .order_by(desc(AuditLog.timestamp))
+                .filter(AuditLog.created_at >= datetime.utcnow() - timedelta(hours=24))
+                .order_by(desc(AuditLog.created_at))
                 .limit(limit)
                 .all()
             )
@@ -154,7 +154,7 @@ class AdminDashboardService:
                         "entity_type": audit.entity_type,
                         "entity_id": audit.entity_id,
                         "user_id": str(audit.user_id) if audit.user_id else None,
-                        "timestamp": audit.timestamp.isoformat(),
+                        "created_at": audit.created_at.isoformat(),
                         "description": self._format_audit_description(audit),
                     }
                 )
@@ -185,7 +185,7 @@ class AdminDashboardService:
                         "name": metric.metric_name,
                         "value": metric.value,
                         "unit": metric.unit,
-                        "timestamp": metric.timestamp.isoformat(),
+                        "created_at": metric.timestamp.isoformat(),
                     }
                 )
 

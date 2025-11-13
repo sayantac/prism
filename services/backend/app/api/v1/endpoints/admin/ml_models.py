@@ -915,24 +915,24 @@ async def get_model_performance_metrics(
         cutoff_date = datetime.utcnow() - timedelta(days=30)
 
         total_recs = db.query(func.count(RecommendationResult.id)).filter(
-            RecommendationResult.algorithm_used == config.model_type,
+            RecommendationResult.algorithm == config.model_type,
             RecommendationResult.created_at >= cutoff_date
         ).scalar() or 0
 
         clicks = db.query(func.count(RecommendationResult.id)).filter(
-            RecommendationResult.algorithm_used == config.model_type,
+            RecommendationResult.algorithm == config.model_type,
             RecommendationResult.created_at >= cutoff_date,
             RecommendationResult.was_clicked== True
         ).scalar() or 0
 
         conversions = db.query(func.count(RecommendationResult.id)).filter(
-            RecommendationResult.algorithm_used == config.model_type,
+            RecommendationResult.algorithm == config.model_type,
             RecommendationResult.created_at >= cutoff_date,
             RecommendationResult.was_purchased == True
         ).scalar() or 0
 
         avg_score = db.query(func.avg(RecommendationResult.score)).filter(
-            RecommendationResult.algorithm_used == config.model_type,
+            RecommendationResult.algorithm == config.model_type,
             RecommendationResult.created_at >= cutoff_date,
             RecommendationResult.score != None
         ).scalar()

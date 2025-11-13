@@ -27,7 +27,7 @@ export const formatCurrency = (
  * Format currency with symbol prefix
  */
 export const formatPrice = (price: number): string => {
-  return `${CURRENCY.SYMBOL}${price.toFixed(CURRENCY.DECIMAL_PLACES)}`;
+  return `${CURRENCY.SYMBOL}${price?.toFixed(CURRENCY.DECIMAL_PLACES)}`;
 };
 
 /**
@@ -56,7 +56,7 @@ export const formatPercentage = (
   value: number,
   decimals: number = 1
 ): string => {
-  return `${value.toFixed(decimals)}%`;
+  return `${value?.toFixed(decimals)}%`;
 };
 
 /**
@@ -64,9 +64,9 @@ export const formatPercentage = (
  */
 export const formatCompactNumber = (num: number): string => {
   if (num < 1000) return num.toString();
-  if (num < 1000000) return `${(num / 1000).toFixed(1)}K`;
-  if (num < 1000000000) return `${(num / 1000000).toFixed(1)}M`;
-  return `${(num / 1000000000).toFixed(1)}B`;
+  if (num < 1000000) return `${(num / 1000)?.toFixed(1)}K`;
+  if (num < 1000000000) return `${(num / 1000000)?.toFixed(1)}M`;
+  return `${(num / 1000000000)?.toFixed(1)}B`;
 };
 
 /**
@@ -77,7 +77,7 @@ export const formatFileSize = (bytes: number): string => {
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  return `${parseFloat((bytes / Math.pow(k, i))?.toFixed(2))} ${sizes[i]}`;
 };
 
 // ==================== Date & Time ====================
@@ -234,7 +234,7 @@ export const formatOrderNumber = (orderNumber: string): string => {
  * Format rating
  */
 export const formatRating = (rating: number, decimals: number = 1): string => {
-  return `${rating.toFixed(decimals)} ⭐`;
+  return `${rating?.toFixed(decimals)} ⭐`;
 };
 
 /**
