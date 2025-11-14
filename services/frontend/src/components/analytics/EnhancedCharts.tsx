@@ -2010,57 +2010,6 @@ const UserActivityChart = ({ className = "" }) => {
           <div className="stat-desc text-xs">registered in this period</div>
         </div>
       </div>
-
-      {/* <ResponsiveContainer width="100%" height={300}>
-        <BarChart
-          data={chartData}
-          margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-        >
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="#e2e8f0"
-            strokeOpacity={0.5}
-          />
-          <XAxis
-            dataKey="date"
-            tick={{ fontSize: 12, fill: "#64748b" }}
-            axisLine={{ stroke: "#e2e8f0" }}
-            tickLine={{ stroke: "#e2e8f0" }}
-          />
-          <YAxis
-            tick={{ fontSize: 12, fill: "#64748b" }}
-            axisLine={{ stroke: "#e2e8f0" }}
-            tickLine={{ stroke: "#e2e8f0" }}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: "white",
-              border: "1px solid #e2e8f0",
-              borderRadius: "8px",
-              boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-            }}
-            formatter={(value, name) => [
-              value.toLocaleString(),
-              name === "newUsers" ? "New Users" : "Returning Users",
-            ]}
-            labelStyle={{ color: "#1e293b", fontWeight: "500" }}
-          />
-          <Bar
-            dataKey="newUsers"
-            stackId="a"
-            fill="#10b981"
-            name="New Users"
-            radius={[0, 0, 4, 4]}
-          />
-          <Bar
-            dataKey="returningUsers"
-            stackId="a"
-            fill="#3b82f6"
-            name="Returning Users"
-            radius={[4, 4, 0, 0]}
-          />
-        </BarChart>
-      </ResponsiveContainer> */}
     </div>
   );
 };
@@ -2125,7 +2074,7 @@ const SystemStatusWidget = ({ className = "" }) => {
             <div>
               <div className="text-xs text-base-content/60">ML Models</div>
               <div className="font-medium">
-                {systemStatus?.ml_models_active || 0} Active
+                {systemStatus?.system_health?.ml_models_active ?? 0} Active
               </div>
             </div>
           </div>
@@ -2214,33 +2163,8 @@ const AdminDashboard = () => {
 
   return (
     <div className="space-y-8 p-6 min-h-screen bg-base-100">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4"
-      >
-        <div>
-          <select
-            value={timeRange}
-            disabled
-            onChange={(e) => setTimeRange(e.target.value)}
-          >
-            <option value="7d">📅 Last 7 days</option>
-            <option value="30d"> 📅 Last 30 days</option>
-            <option value="90d">📅 Last 90 days</option>
-            <option value="1y">📅 Last year</option>
-          </select>
-
-          <button
-            onClick={refetchDashboard}
-            className="btn btn-primary btn-outline"
-            title="Refresh all data"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
-      </motion.div>
+      {/* Header Controls */}
+      {/* Removed duplicate header controls, now handled in parent */}
 
       {/* System Status */}
       <SystemStatusWidget />

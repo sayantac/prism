@@ -952,7 +952,7 @@ const ModelPerformanceCharts = ({ modelName }) => {
 
 // Recommendation Management Component
 const RecommendationManagement = () => {
-  const [selectedAlgorithm, setSelectedAlgorithm] = useState("all");
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState("hybrid");
   const [timeRange, setTimeRange] = useState(30);
 
   // Updated query to use correct endpoint and parameters
@@ -961,7 +961,7 @@ const RecommendationManagement = () => {
     isLoading: recLoading,
     refetch: refetchRecPerformance,
   } = useGetRecommendationPerformanceQuery({
-    algorithm: selectedAlgorithm === "all" ? "all" : selectedAlgorithm,
+    algorithm: selectedAlgorithm,
     days: timeRange,
   });
 
@@ -969,15 +969,9 @@ const RecommendationManagement = () => {
   const recPerformance = rawRecPerformance ? [rawRecPerformance] : [];
 
   const algorithms = [
-    { id: "all", name: "All Algorithms", color: "primary" },
-    {
-      id: "collaborative_filtering",
-      name: "Collaborative Filtering",
-      color: "success",
-    },
-    { id: "content_based", name: "Content Based", color: "info" },
     { id: "hybrid", name: "Hybrid Model", color: "warning" },
-    { id: "deep_learning", name: "Deep Learning", color: "error" },
+    { id: "collaborative_filtering", name: "Collaborative", color: "success" },
+    { id: "content_based", name: "Content Based", color: "info" },
   ];
 
   if (recLoading) {
@@ -1001,7 +995,7 @@ const RecommendationManagement = () => {
 
         <div className="flex items-center gap-4">
           <select
-            className="select select-bordered select-sm"
+            className="select select-bordered select-sm min-w-[150px]"
             value={selectedAlgorithm}
             onChange={(e) => setSelectedAlgorithm(e.target.value)}
           >
@@ -1044,7 +1038,18 @@ const RecommendationManagement = () => {
             <div className="card-body p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-lg">
-                  {algorithm.algorithm.replace(/_/g, " ")}
+                  {(() => {
+                    const displayMap: Record<string, string> = {
+                      hybrid: "Hybrid Model",
+                      collaborative_filtering: "Collaborative",
+                      content_based: "Content Based",
+                    };
+                    const key = algorithm.algorithm;
+                    return (
+                      displayMap[key] ||
+                      (String(key).replace(/_/g, " ") as string)
+                    );
+                  })()}
                 </h3>
                 <div className="badge badge-primary">
                   {algorithm.impressions?.toLocaleString()}

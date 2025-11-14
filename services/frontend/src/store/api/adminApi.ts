@@ -81,14 +81,14 @@ export const adminApi = apiSlice.injectEndpoints({
     // Products Management
     getAdminProducts: builder.query({
       query: (params = {}) => ({
-        url: "/admin/products",
+        url: "/admin/products/products",
         params,
       }),
       providesTags: ["Product"],
     }),
     createProduct: builder.mutation({
       query: (productData) => ({
-        url: "/admin/products",
+        url: "/admin/products/products",
         method: "POST",
         body: productData,
       }),
@@ -96,7 +96,7 @@ export const adminApi = apiSlice.injectEndpoints({
     }),
     updateProduct: builder.mutation({
       query: ({ id, ...data }) => ({
-        url: `/admin/products/${id}`,
+        url: `/admin/products/products/${id}`,
         method: "PUT",
         body: data,
       }),
@@ -104,7 +104,7 @@ export const adminApi = apiSlice.injectEndpoints({
     }),
     deleteProduct: builder.mutation({
       query: (id) => ({
-        url: `/admin/products/${id}`,
+        url: `/admin/products/products/${id}`,
         method: "DELETE",
       }),
       invalidatesTags: ["Product"],

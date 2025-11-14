@@ -1,6 +1,8 @@
 import { TrendingDown, TrendingUp, RefreshCw } from "lucide-react";
+import { Button } from "../../../components/ui/Button";
 import { AdminDashboard as AD } from "../../../components/analytics/EnhancedCharts";
 import { Loading } from "../../../components/ui/Loading";
+import React, { useState } from "react";
 
 import { UserBehaviorSummary } from "../../../components/admin/dashboard/UserBehaviorSummary";
 import {
@@ -72,18 +74,19 @@ const MetricCard: React.FC<MetricCardProps> = ({
 };
 
 export const AdminDashboard: React.FC = () => {
-  // const { data: dashboardData, isLoading } = useGetAdminDashboardQuery({});
-  // const { data: realtimeStats } = useGetRealtimeStatsQuery({});
+  const [timeRange, setTimeRange] = React.useState(90);
+  const [refreshKey, setRefreshKey] = React.useState(0);
   const { data: dashboardData, isLoading } = useGetAdminDashboardQuery({
-    days: 90,
+    days: timeRange,
+    refresh: refreshKey,
   });
 
-  // Fetch KPIs (default: last 30 days)
-  const { data: kpisData } = useGetKpisQuery({ days: 90 });
+  // Fetch KPIs
+  const { data: kpisData } = useGetKpisQuery({ days: timeRange });
 
-  // Fetch recommendation performance (default: last 30 days)
+  // Fetch recommendation performance
   const { data: recommendationPerformance } =
-    useGetRecommendationPerformanceQuery({ days: 90 });
+    useGetRecommendationPerformanceQuery({ days: timeRange });
 
   // Fetch segment performance
   const { data: segmentPerformance } = useGetSegmentPerformanceQuery({});
@@ -124,22 +127,30 @@ export const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-base-content">Admin Dashboard</h1>
           <p className="text-base-content/70 mt-1">Monitor system performance and key metrics</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => window.location.reload()}
-            className="btn btn-outline btn-primary"
+        <div className="flex items-center gap-3 mt-4 lg:mt-0">
+          <select
+            value={timeRange}
+            onChange={e => setTimeRange(Number(e.target.value))}
+            className="select select-bordered select-sm"
           >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+          </select>
+          <button
+            className="btn btn-primary btn-sm"
+            title="Refresh dashboard"
+            onClick={() => setRefreshKey(k => k + 1)}
+          >
+            <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
-
 
       {/* Legacy Dashboard as fallback */}
       <AD />
