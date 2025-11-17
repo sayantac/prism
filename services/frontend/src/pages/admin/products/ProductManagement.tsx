@@ -9,7 +9,6 @@ import {
   Package,
   Plus,
   Save,
-  Share2,
   Sparkles,
   Tag,
   Trash2,
@@ -739,23 +738,25 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
             </div>
 
             <div className="rounded-2xl border border-base-200 bg-base-100 p-5 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <Tabs
-                  tabs={contentTabs}
-                  activeTab={activeTab}
-                  onTabChange={setActiveTab}
-                  variant="lifted"
-                />
+              <div className="flex items-center gap-6">
+                <div className="w-[340px]">
+                  <Tabs
+                    tabs={contentTabs}
+                    activeTab={activeTab}
+                    onTabChange={setActiveTab}
+                    variant="lifted"
+                  />
+                </div>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="primary"
                   size="sm"
                   icon={<Sparkles className="w-4 h-4" />}
                   onClick={handleGenerateAllContent}
                   loading={isGenerating}
                   disabled={isGenerating}
                 >
-                  Generate 
+                  Generate
                 </Button>
               </div>
 
@@ -793,7 +794,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
                   <div className="space-y-4">
                     <div className="grid gap-4 md:grid-cols-2">
                       <Input
-                        label="Title tag"
+                        label="Title Tag"
                         placeholder="UltraClear Pro ANC Headphones | 35hr Battery"
                         value={contentDraft.seoTitle}
                         onChange={(event) =>
@@ -813,7 +814,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
                     <div>
                       <label className="label">
                         <span className="label-text text-base-content font-medium">
-                          Meta description
+                          Meta Description
                         </span>
                       </label>
                       <textarea
@@ -866,7 +867,7 @@ export const AdminProducts: React.FC = () => {
   const { data: productsData, isLoading } = useGetAdminProductsQuery({
     page: currentPage,
     page_size: 20,
-    search: searchQuery || undefined,
+    search_term: searchQuery || undefined,
     category: categoryFilter || undefined,
   });
   const { data: adminCategories } = useGetProductCategoriesQuery();
