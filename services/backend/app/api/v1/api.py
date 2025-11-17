@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     user_behavior,
     users,
     wishlist,
+    product_description_ai,
 )
 from app.api.v1.endpoints.admin import (
     analytics as admin_analytics,
@@ -83,4 +84,10 @@ api_router.include_router(
 )
 api_router.include_router(
     admin_system.router, prefix="/admin/system", tags=["admin-system"]
+)
+
+api_router.include_router(
+    product_description_ai.router,
+    prefix="/products/description-ai",
+    tags=["product-description-ai"],
 )

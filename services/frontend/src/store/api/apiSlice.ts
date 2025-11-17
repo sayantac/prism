@@ -10,20 +10,31 @@ import env from "../../config/env";
 import type { RootState } from "../store";
 import { logout } from "../slices/authSlice";
 
+const MULTIPART_ENDPOINTS = new Set([
+  "generateProductContent",
+  "uploadProductImage",
+]);
+
 /**
  * Base query with authentication headers
  */
 const baseQuery = fetchBaseQuery({
   baseUrl: env.apiUrl,
-  prepareHeaders: (headers, { getState }) => {
+  prepareHeaders: (headers, { getState, endpoint }) => {
     const token = (getState() as RootState).auth.token;
     
     if (token) {
       headers.set("authorization", `Bearer ${token}`);
     }
     
+  const skipContentType = endpoint && MULTIPART_ENDPOINTS.has(endpoint);
+
+    if (skipContentType && headers.has("Content-Type")) {
+      headers.delete("Content-Type");
+    }
+
     // Only set Content-Type if not already set (important for file uploads)
-    if (!headers.has("Content-Type")) {
+    if (!headers.has("Content-Type") && !skipContentType) {
       headers.set("Content-Type", "application/json");
     }
     

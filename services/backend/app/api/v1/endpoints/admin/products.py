@@ -2,7 +2,14 @@ import logging
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    status,
+)
 from sqlalchemy import and_, desc, func
 from sqlalchemy.orm import Session, selectinload
 
@@ -45,7 +52,6 @@ async def generate_product_embedding_task(product_id: str, db: Session):
                 logger.info(f"Generated embedding for product {product_id}")
     except Exception as e:
         logger.error(f"Error generating embedding: {str(e)}")
-
 
 @router.get("/products", response_model=PaginatedResponse)
 async def admin_list_products(

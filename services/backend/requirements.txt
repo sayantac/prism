@@ -27,6 +27,7 @@ lightgbm==4.3.0
 implicit==0.7.2
 joblib==1.5.1
 threadpoolctl==3.6.0
+torch==2.1.2
 
 # Association Rule Mining (for FBT recommendations)
 mlxtend==0.23.1
@@ -139,3 +140,7 @@ numexpr==2.10.2
 
 # OpenAPI Schema Support
 openapi-schema-pydantic==1.2.4
+
+# Machine Learning / AI
+transformers==4.46.3
+huggingface-hub==0.26.2

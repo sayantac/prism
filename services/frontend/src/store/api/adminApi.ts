@@ -1,4 +1,27 @@
+import type { Category } from "@/types";
 import { apiSlice } from "./apiSlice";
+
+type ProductContentMode = "description" | "title" | "seo" | "all";
+
+interface GenerateProductContentArgs {
+  mode: ProductContentMode;
+  product: {
+    name?: string;
+    brand?: string;
+    sku?: string;
+    category?: string;
+    context?: string;
+    language?: string;
+  };
+  files?: File[];
+}
+
+interface FileUploadResponse {
+  filename: string;
+  url: string;
+  size: number;
+  content_type: string;
+}
 
 export const adminApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
@@ -79,12 +102,28 @@ export const adminApi = apiSlice.injectEndpoints({
     }),
 
     // Products Management
+    getProductCategories: builder.query<Category[], void>({
+      query: () => "/admin/products/categories",
+      providesTags: ["Category"],
+    }),
     getAdminProducts: builder.query({
       query: (params = {}) => ({
         url: "/admin/products/products",
         params,
       }),
       providesTags: ["Product"],
+    }),
+    uploadProductImage: builder.mutation<FileUploadResponse, File>({
+      query: (file) => {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        return {
+          url: "/products/upload-image",
+          method: "POST",
+          body: formData,
+        };
+      },
     }),
     createProduct: builder.mutation({
       query: (productData) => ({
@@ -108,6 +147,29 @@ export const adminApi = apiSlice.injectEndpoints({
         method: "DELETE",
       }),
       invalidatesTags: ["Product"],
+    }),
+
+    generateProductContent: builder.mutation({
+      query: ({ mode, product, files }: GenerateProductContentArgs) => {
+        const formData = new FormData();
+        formData.append("mode", mode);
+        formData.append("product_name", product.name ?? "");
+        formData.append("brand", product.brand ?? "");
+        formData.append("sku", product.sku ?? "");
+        formData.append("category", product.category ?? "");
+        formData.append("context", product.context ?? "");
+        formData.append("language", product.language ?? "English");
+
+        files?.forEach((file) => {
+          formData.append("files", file);
+        });
+
+        return {
+          url: "/products/description-ai/generate-product-content",
+          method: "POST",
+          body: formData,
+        };
+      },
     }),
 
     // Users Management
@@ -369,10 +431,13 @@ export const {
   useGetRecentActivityQuery,
 
   // Products
+  useGetProductCategoriesQuery,
   useGetAdminProductsQuery,
+  useUploadProductImageMutation,
   useCreateProductMutation,
   useUpdateProductMutation,
   useDeleteProductMutation,
+  useGenerateProductContentMutation,
 
   // Users
   useGetAdminUsersQuery,

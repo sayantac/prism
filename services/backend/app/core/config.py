@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     # Google Gemini Configuration
     # Used for image generation (product posters, banners)
     GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY", None)
-    GEMINI_MODEL: str = "gemini-1.5-pro"  # Gemini model for image generation
+    GEMINI_MODEL: str = "models/gemini-2.0-flash"  # Gemini model for image generation
     GEMINI_IMAGE_MODEL: str = "imagen-3.0-generate-001"  # Imagen for image generation
 
     # Image generation settings

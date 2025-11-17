@@ -8,7 +8,7 @@ natural language content.
 import json
 import logging
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError, BotoCoreError
@@ -156,6 +156,35 @@ class LLMService:
             >>> llm_service = LLMService()
             >>> text = await llm_service.generate_text("Explain why...")
         """
+        response = await self.invoke_model(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": prompt,
+                        }
+                    ],
+                }
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
+
+        return self.extract_text(response)
+
+    async def invoke_model(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        **kwargs: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """Invoke the configured Bedrock model with raw messages payload."""
         if not self._client:
             logger.error("AWS Bedrock LLM client not initialized")
             return None
@@ -167,18 +196,16 @@ class LLMService:
 
         try:
             # Prepare request body for Claude
-            body = json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "top_p": top_p,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            })
+            body = json.dumps(
+                {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "messages": messages,
+                    **kwargs,
+                }
+            )
 
             # Call Bedrock Runtime
             response = self._client.invoke_model(
@@ -190,14 +217,7 @@ class LLMService:
 
             # Parse response
             response_body = json.loads(response["body"].read())
-
-            # Extract generated text
-            if "content" in response_body and len(response_body["content"]) > 0:
-                generated_text = response_body["content"][0]["text"]
-                return generated_text.strip()
-            else:
-                logger.error("Invalid LLM response format")
-                return None
+            return response_body
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
@@ -217,6 +237,29 @@ class LLMService:
                 f"Unexpected error calling Bedrock LLM: {str(e)}", exc_info=True
             )
             return None
+
+    @staticmethod
+    def extract_text(response: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Extract concatenated text segments from a Bedrock response."""
+        if not response:
+            return None
+
+        content = response.get("content", [])
+        if not isinstance(content, list):
+            logger.error("Unexpected LLM response content format")
+            return None
+
+        text_segments: List[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                text_value = part.get("text")
+                if isinstance(text_value, str):
+                    text_segments.append(text_value.strip())
+
+        if not text_segments:
+            return None
+
+        return "\n".join(segment for segment in text_segments if segment)
 
     async def generate_recommendation_explanation(
         self,

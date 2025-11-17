@@ -34,6 +34,7 @@ export const Tabs: React.FC<TabsProps> = ({
       {tabs.map((tab) => (
         <button
           key={tab.id}
+          type={"button"}
           className={`tab tab-lg ${activeTab === tab.id ? "tab-active" : ""}`}
           onClick={() => onTabChange(tab.id)}
         >
