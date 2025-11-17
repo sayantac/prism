@@ -48,7 +48,8 @@ async def get_system_status(
         try:
             model_manager = MLModelManager(settings.MODEL_STORAGE_PATH)
             active_models_status = model_manager.list_saved_models()
-            ml_models_active = len([m for m in active_models_status.get("models", {}).values() if m.get("loaded")])
+            # ml_models_active = len([m for m in active_models_status.get("models", {}).values() if m.get("loaded")])
+            ml_models_active = len([k for k, v in active_models_status.items() if v])
         except Exception as e:
             logger.warning(f"Error checking ML models: {e}")
             ml_models_active = 0

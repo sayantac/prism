@@ -33,11 +33,13 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Area,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
   ComposedChart,
+  Legend,
   Line,
   Pie,
   PieChart,
@@ -544,7 +546,7 @@ const MetricCard = ({
               </h3>
               {description && (
                 <div className="tooltip tooltip-right" data-tip={description}>
-                  <Info className="w-4 h-4 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
+                  <Info className="w-4 h-4 text-base-content/50 hover:text-info cursor-help shrink-0" />
                 </div>
               )}
             </div>
@@ -1863,19 +1865,55 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
   } = useGetAdminDashboardQuery({ days });
 
   const chartData = useMemo(() => {
-    if (!dashboardData?.revenue) return [];
+    const trend = dashboardData?.orders?.trend;
+    if (!Array.isArray(trend) || trend.length === 0) {
+      return [];
+    }
 
-    // Use only actual API data - no mock daily breakdown
-    return [
-      {
-        date: "Period Total",
-        fullDate: dashboardData.period?.end_date,
-        revenue: dashboardData.revenue.total,
-        previousRevenue: dashboardData.revenue.total * 0.88, // Based on 12.5% growth rate
-        orders: dashboardData.orders?.total || 0,
-      },
-    ];
+    const recentTrend = trend.slice(-90);
+
+    return recentTrend.map((item: any) => {
+      const date = new Date(item.date);
+      const isValidDate = !Number.isNaN(date.getTime());
+
+      return {
+        date: isValidDate ? date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : item.date,
+        fullDate: item.date,
+        revenue: Number(item.revenue) || 0,
+      };
+    });
   }, [dashboardData]);
+
+  const revenueGrowth = useMemo(() => {
+    if (chartData.length === 0) {
+      return { percent: 0, direction: "neutral" as const };
+    }
+
+    const recentWindow = chartData.slice(-14);
+    const currentPeriod = recentWindow.slice(-7);
+    const previousPeriod = recentWindow.slice(0, recentWindow.length - 7);
+
+    const sumRevenue = (data: typeof chartData) =>
+      data.reduce((sum, entry) => sum + (entry.revenue || 0), 0);
+
+    const currentTotal = sumRevenue(currentPeriod);
+    const previousTotal = previousPeriod.length > 0 ? sumRevenue(previousPeriod) : 0;
+
+    if (previousTotal === 0) {
+      if (currentTotal === 0) {
+        return { percent: 0, direction: "neutral" as const };
+      }
+      return { percent: 100, direction: "up" as const };
+    }
+
+    const change = currentTotal - previousTotal;
+    const percentChange = (change / previousTotal) * 100;
+
+    return {
+      percent: percentChange,
+      direction: change > 0 ? "up" : change < 0 ? "down" : "neutral" as const,
+    };
+  }, [chartData]);
 
   const formatCurrency = (value: ValueType) =>
     `$${Number(value).toLocaleString()}`;
@@ -1904,12 +1942,12 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
   return (
     <div className={`w-full ${className} relative`}>
       {/* Real Revenue Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="stat bg-success/10 rounded-lg p-3 border border-success/20">
           <div className="stat-title text-xs flex items-center gap-1.5">
             <span>Total Revenue</span>
             <div className="tooltip tooltip-right" data-tip="Total revenue from all completed orders in the selected period">
-              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help shrink-0" />
             </div>
           </div>
           <div className="stat-value text-success text-lg">
@@ -1924,7 +1962,7 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
           <div className="stat-title text-xs flex items-center gap-1.5">
             <span>Daily Average</span>
             <div className="tooltip tooltip-right" data-tip="Average revenue per day calculated over the selected period">
-              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help shrink-0" />
             </div>
           </div>
           <div className="stat-value text-info text-lg">
@@ -1934,6 +1972,109 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
             ).toLocaleString()}
           </div>
           <div className="stat-desc text-xs">Per day average</div>
+        </div>
+
+        <div
+          className={`stat rounded-lg p-3 border ${
+            revenueGrowth.direction === "up"
+              ? "bg-success/10 border-success/20"
+              : revenueGrowth.direction === "down"
+              ? "bg-error/10 border-error/20"
+              : "bg-base-200/40 border-base-300"
+          }`}
+        >
+          <div className="stat-title text-xs flex items-center gap-1.5">
+            <span>Growth Rate</span>
+            <div className="tooltip tooltip-right" data-tip="Change in revenue compared to the previous week">
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help shrink-0" />
+            </div>
+          </div>
+          <div
+            className={`stat-value text-lg ${
+              revenueGrowth.direction === "up"
+                ? "text-success"
+                : revenueGrowth.direction === "down"
+                ? "text-error"
+                : "text-base-content"
+            }`}
+          >
+            {`${Math.abs(revenueGrowth.percent).toFixed(1)}%`}
+          </div>
+          <div className="stat-desc text-xs flex items-center gap-1">
+            {revenueGrowth.direction === "up" && (
+              <TrendingUp className="w-3 h-3 text-success" />
+            )}
+            {revenueGrowth.direction === "down" && (
+              <TrendingDown className="w-3 h-3 text-error" />
+            )}
+            <span>
+              {revenueGrowth.direction === "up"
+                ? "vs previous 7 days"
+                : revenueGrowth.direction === "down"
+                ? "vs previous 7 days"
+                : "No change vs previous 7 days"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="card bg-base-100 border border-base-300 shadow-lg">
+        <div className="card-body">
+          <div className="flex items-center justify-between mb-4">
+            {/* <h3 className="font-semibold text-lg flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-success" />
+              90-Day Revenue Trend
+            </h3>
+            <span className="text-xs text-base-content/60">
+              Showing last {chartData.length} day{chartData.length === 1 ? "" : "s"}
+            </span> */}
+          </div>
+
+          {chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={276}>
+              <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 10 }}>
+                <defs>
+                  <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
+                <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#64748b" }} angle={-35} textAnchor="end" height={60} />
+                <YAxis
+                  tick={{ fontSize: 12, fill: "#64748b" }}
+                  tickFormatter={(value) => `$${Math.round(value).toLocaleString()}`}
+                  label={{ value: "", angle: -90, position: "insideLeft", offset: 10 }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "8px",
+                    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                  }}
+                  formatter={(value: ValueType, name: string) => {
+                    return [`$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, "Revenue"];
+                  }}
+                  labelFormatter={(label) => `Date: ${label}`}
+                />
+                <Area type="monotone" dataKey="revenue" fill="url(#revenueGradient)" stroke="none" name="revenue" />
+                <Line
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#10b981"
+                  strokeWidth={3}
+                  dot={false}
+                  activeDot={{ r: 4, strokeWidth: 0, fill: "#10b981" }}
+                  name="revenue"
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[260px] text-base-content/50">
+              <span>No daily trend data available for this period.</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1947,28 +2088,65 @@ const UserActivityChart = ({ className = "" }) => {
     refetch,
   } = useGetAdminDashboardQuery({ days: 90 });
 
-  const chartData = useMemo(() => {
-    if (!dashboardData?.users) return [];
+  const {
+    dailyChartData,
+    activeUsers,
+    newUsersCount,
+    totalUsers,
+    retentionRate,
+  } = useMemo(() => {
+    if (!dashboardData?.users) {
+      return {
+        dailyChartData: [],
+        activeUsers: 0,
+        newUsersCount: 0,
+        totalUsers: 0,
+        retentionRate: 0,
+      };
+    }
 
-    // Use only actual API data - no daily breakdown
     const activeUsers = dashboardData.users.active || 0;
-    const newUsers = dashboardData.users.new || 0;
-    const retentionRate = dashboardData.users.retention_rate || 68.4;
+    const newUsersCount = dashboardData.users.new || 0;
+    const totalUsers = dashboardData.users.total || 0;
+    const retentionRate =
+      dashboardData.users.retention_rate ??
+      dashboardData.users.retention ??
+      0;
 
-    // Calculate returning users based on retention rate
-    const returningUsers = Math.round(activeUsers * (retentionRate / 100));
-    const actualNewUsers = Math.max(0, activeUsers - returningUsers);
+    const dailyTrend = Array.isArray(dashboardData.users.daily_trend)
+      ? dashboardData.users.daily_trend
+      : [];
 
-    return [
-      {
-        date: "Period Total",
-        fullDate: dashboardData.period?.end_date,
-        activeUsers: activeUsers,
-        newUsers: actualNewUsers,
-        returningUsers: returningUsers,
-      },
-    ];
+    const trimmedTrend = dailyTrend.slice(-7);
+
+    const dailyChartData = trimmedTrend.map((entry: any) => {
+      const dateValue = entry.date;
+      const parsedDate = new Date(dateValue);
+      const label = Number.isNaN(parsedDate.getTime())
+        ? dateValue
+        : parsedDate.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          });
+
+      return {
+        date: label,
+        fullDate: dateValue,
+        newUsers: entry.new_users ?? entry.newUsers ?? 0,
+        returningUsers: entry.returning_users ?? entry.returningUsers ?? 0,
+      };
+    });
+
+    return {
+      dailyChartData,
+      activeUsers,
+      newUsersCount,
+      totalUsers,
+      retentionRate,
+    };
   }, [dashboardData]);
+
+  const hasDailyData = dailyChartData.length > 0;
 
   if (isLoading) {
     return (
@@ -1981,19 +2159,19 @@ const UserActivityChart = ({ className = "" }) => {
   return (
     <div className={`w-full ${className} relative`}>
       {/* Real User Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="stat bg-primary/10 rounded-lg p-3 border border-primary/20">
           <div className="stat-title text-xs flex items-center gap-1.5">
             <span>Active Users</span>
             <div className="tooltip tooltip-right" data-tip="Users who have logged in or made a purchase in the last 24 hours">
-              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help shrink-0" />
             </div>
           </div>
           <div className="stat-value text-primary text-lg">
-            {dashboardData?.users?.active?.toLocaleString() || 0}
+            {activeUsers.toLocaleString()}
           </div>
           <div className="stat-desc text-xs">
-            of {dashboardData?.users?.total?.toLocaleString() || 0} total users
+            of {totalUsers.toLocaleString()} total users
           </div>
         </div>
 
@@ -2001,13 +2179,99 @@ const UserActivityChart = ({ className = "" }) => {
           <div className="stat-title text-xs flex items-center gap-1.5">
             <span>New Users</span>
             <div className="tooltip tooltip-right" data-tip="Number of new user registrations in the selected period">
-              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help flex-shrink-0" />
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help shrink-0" />
             </div>
           </div>
           <div className="stat-value text-success text-lg">
-            {dashboardData?.users?.new?.toLocaleString() || 0}
+            {newUsersCount.toLocaleString()}
           </div>
           <div className="stat-desc text-xs">registered in this period</div>
+        </div>
+
+        <div className="stat bg-warning/10 rounded-lg p-3 border border-warning/20">
+          <div className="stat-title text-xs flex items-center gap-1.5">
+            <span>Retention Rate</span>
+            <div className="tooltip tooltip-right" data-tip="Percentage of active users compared to total users">
+              <Info className="w-3.5 h-3.5 text-base-content/50 hover:text-info cursor-help shrink-0" />
+            </div>
+          </div>
+          <div className="stat-value text-warning text-lg">
+            {`${(retentionRate || 0).toFixed(1)}%`}
+          </div>
+          <div className="stat-desc text-xs flex items-center gap-1">
+            <TrendingUp className="w-3 h-3 text-warning" />
+            <span>Active vs total users</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="card bg-base-100 border border-base-300 shadow-lg">
+        <div className="card-body">
+          {hasDailyData ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={dailyChartData} barSize={40}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.35} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 12, fill: "#64748b" }}
+                  axisLine={{ stroke: "#e2e8f0" }}
+                  tickLine={{ stroke: "#e2e8f0" }}
+                />
+                <YAxis
+                  tick={{ fontSize: 12, fill: "#64748b" }}
+                  axisLine={{ stroke: "#e2e8f0" }}
+                  tickLine={{ stroke: "#e2e8f0" }}
+                  tickFormatter={(value) => Number(value).toLocaleString()}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "8px",
+                    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                  }}
+                  formatter={(value: ValueType, name: string) => [
+                    Number(value).toLocaleString(),
+                    name === "newUsers" ? "New Users" : "Returning Users",
+                  ]}
+                  labelFormatter={(label) => `Date: ${label}`}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: 12 }}
+                  formatter={(value: string) => {
+                    if (value === "newUsers" || value === "New Users") {
+                      return "New Users";
+                    }
+                    if (value === "returningUsers" || value === "Returning Users") {
+                      return "Returning Users";
+                    }
+                    return value;
+                  }}
+                />
+                <Bar
+                  dataKey="newUsers"
+                  stackId="users"
+                  fill="#22c55e"
+                />
+                <Bar
+                  dataKey="returningUsers"
+                  stackId="users"
+                  fill="#3b82f6"
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[220px] text-base-content/50">
+              <div className="flex flex-col items-center gap-2">
+                <Users className="w-8 h-8 text-base-content/40" />
+                <span>No daily user activity data available.</span>
+                <button onClick={refetch} className="btn btn-outline btn-sm mt-2">
+                  <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+                </button>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
@@ -2214,7 +2478,7 @@ const AdminDashboard = () => {
 
           <MetricCard
             title="Products Sold"
-            value={dashboardData?.products?.sold?.toLocaleString() || "0"}
+            value={dashboardData?.products?.products_sold?.toLocaleString() || "0"}
             change={{ value: 3.8, type: "increase" }}
             icon={Package}
             color="warning"
@@ -2364,4 +2628,3 @@ export {
   UserActivityChart,
   UserSegmentChart
 };
-

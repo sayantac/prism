@@ -101,9 +101,7 @@ Product Category: {request.target_product_category}
 
 @router.post("/generate-banner")
 async def generate_ai_banner(
-    request: BannerRequest,
-    current_user: User = Depends(get_current_active_superuser),
-    db: Session = Depends(get_db),
+    request: BannerRequest
 ) -> Dict[str, Any]:
     """
     Generate AI banner image using Google Imagen.
@@ -113,6 +111,7 @@ async def generate_ai_banner(
     **Required Permission:** `system.ml_models`
     """
     try:
+        logger.info(f"Generating banner with prompt: {request.prompt}")
         image_service = ImageGenerationService()
 
         # Generate unique banner ID
@@ -131,6 +130,8 @@ async def generate_ai_banner(
             output_path=output_path,
             aspect_ratio=request.aspect_ratio
         )
+        
+        logger.info(f"Banner generation result: {result}")
 
         if not result.get("success"):
             raise HTTPException(

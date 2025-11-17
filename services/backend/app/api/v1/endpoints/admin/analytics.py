@@ -254,6 +254,18 @@ async def get_admin_dashboard_metrics(
 
         # Daily trend (last 30 days of period)
         daily_trend = []
+        daily_user_trend = []
+
+        first_order_subquery = (
+            db.query(
+                Order.user_id.label("user_id"),
+                func.min(Order.created_at).label("first_order_date"),
+            )
+            .filter(Order.status.notin_(["cancelled", "refunded"]))
+            .group_by(Order.user_id)
+            .subquery()
+        )
+
         for i in range(min(days, 30)):
             day_start = (end_date - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
             day_end = day_start + timedelta(days=1)
@@ -275,6 +287,26 @@ async def get_admin_dashboard_metrics(
                 "date": day_start.strftime("%Y-%m-%d"),
                 "orders": day_orders,
                 "revenue": round(day_revenue, 2)
+            })
+
+            day_active_users = db.query(func.count(distinct(Order.user_id))).filter(
+                Order.created_at >= day_start,
+                Order.created_at < day_end,
+                Order.status.notin_(["cancelled", "refunded"])
+            ).scalar() or 0
+
+            new_users_that_day = db.query(func.count(first_order_subquery.c.user_id)).filter(
+                first_order_subquery.c.first_order_date >= day_start,
+                first_order_subquery.c.first_order_date < day_end
+            ).scalar() or 0
+
+            returning_users_that_day = max(day_active_users - new_users_that_day, 0)
+
+            daily_user_trend.insert(0, {
+                "date": day_start.strftime("%Y-%m-%d"),
+                "new_users": new_users_that_day,
+                "returning_users": returning_users_that_day,
+                "active_users": day_active_users,
             })
 
         # Users metrics
@@ -392,7 +424,15 @@ async def get_admin_dashboard_metrics(
             RecommendationResult.created_at >= cutoff_date,
             RecommendationResult.algorithm != None
         ).all()
-
+        unique_products_sold = (
+            db.query(func.count(distinct(OrderItem.product_id)))
+            .join(Order)
+            .filter(
+                Order.created_at >= cutoff_date,
+                Order.status.notin_(["cancelled", "refunded"])
+            )
+            .scalar() or 0
+        )
         algorithm_performance = []
         for (algo,) in algorithms:
             algo_total = db.query(func.count(RecommendationResult.id)).filter(
@@ -425,7 +465,6 @@ async def get_admin_dashboard_metrics(
                 "conversion_rate": round((algo_conversions / algo_total) * 100, 2) if algo_total > 0 else 0.0,
                 "average_score": round(float(algo_avg_score), 2) if algo_avg_score else 0.0
             })
-
         return {
             "period": {
                 "start_date": cutoff_date.isoformat() + "Z",
@@ -445,11 +484,14 @@ async def get_admin_dashboard_metrics(
                 "active_users": active_users,
                 "retention_rate": retention_rate,
                 "users_with_addresses": users_with_addresses,
-                "users_with_viewed_products": users_with_viewed_products
+                "users_with_viewed_products": users_with_viewed_products,
+                "total_users": total_users,
+                "daily_trend": daily_user_trend
             },
             "products": {
                 "top_products": top_products,
-                "category_performance": category_performance
+                "category_performance": category_performance,
+                "products_sold": unique_products_sold
             },
             "search": {
                 "total_searches": total_searches,

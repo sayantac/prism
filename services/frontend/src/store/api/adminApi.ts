@@ -45,6 +45,7 @@ export const adminApi = apiSlice.injectEndpoints({
           revenue: {
             total: response.orders?.total_revenue || 0,
             trend: response.orders?.daily_trend || [],
+            daily_average: response.orders?.average_order_value || 0,
           },
           orders: {
             total: response.orders?.total_orders || 0,
@@ -56,6 +57,11 @@ export const adminApi = apiSlice.injectEndpoints({
             active: response.users?.active_users || 0,
             new: response.users?.new_users || 0,
             retention: response.users?.retention_rate || 0,
+            retention_rate: response.users?.retention_rate || 0,
+            with_addresses: response.users?.users_with_addresses || 0,
+            with_viewed_products: response.users?.users_with_viewed_products || 0,
+            total: response.users?.total_users || 0,
+            daily_trend: response.users?.daily_trend || [],
           },
           products: response.products || {},
           search: response.search || {},
