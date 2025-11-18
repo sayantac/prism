@@ -264,6 +264,27 @@ export const adminApi = apiSlice.injectEndpoints({
         return Array.isArray(response) ? response : [];
       },
     }),
+    getSegmentPerformanceAnalytics: builder.query({
+      query: () => "/admin/analytics/segments/performance",
+      providesTags: ["UserSegment", "Analytics"],
+      keepUnusedDataFor: 600,
+      transformResponse: (response: any) => {
+        const segments = Array.isArray(response)
+          ? response
+          : Array.isArray(response?.segments)
+          ? response.segments
+          : [];
+
+        return segments.map((segment: any) => ({
+          segment_name: segment?.segment_name ?? segment?.segment ?? "Unknown Segment",
+          member_count: segment?.member_count ?? segment?.user_count ?? 0,
+          orders_count: segment?.orders_count ?? segment?.order_count ?? 0,
+          avg_order_value: segment?.avg_order_value ?? segment?.average_order_value ?? 0,
+          total_revenue: segment?.total_revenue ?? segment?.revenue ?? 0,
+          revenue_per_member: segment?.revenue_per_member ?? segment?.member_revenue ?? 0,
+        }));
+      },
+    }),
     getRevenueData: builder.query({
       query: (params: any = {}) => ({
         url: "/admin/analytics/revenue",
@@ -361,6 +382,47 @@ export const adminApi = apiSlice.injectEndpoints({
       query: () => "/admin/user-segmentation/segments",
       providesTags: ["UserSegment"],
       keepUnusedDataFor: 600,
+      transformResponse: (response: any) => {
+        const segments = Array.isArray(response)
+          ? response
+          : response?.data ?? [];
+
+        if (!Array.isArray(segments)) {
+          return [];
+        }
+
+        return segments.map((segment: any) => {
+          const normalizedName =
+            segment?.name ??
+            segment?.segment_name ??
+            segment?.segmentName ??
+            segment?.id ??
+            "Untitled Segment";
+
+          const normalizedId =
+            segment?.id ??
+            segment?.segment_id ??
+            segment?.segmentId ??
+            normalizedName;
+
+          const memberCount =
+            segment?.member_count ??
+            segment?.user_count ??
+            segment?.actual_size ??
+            segment?.size ??
+            0;
+
+          return {
+            ...segment,
+            id: normalizedId,
+            segment_id: segment?.segment_id ?? normalizedId,
+            segment_name: segment?.segment_name ?? normalizedName,
+            name: normalizedName,
+            user_count: segment?.user_count ?? memberCount,
+            member_count: memberCount,
+          };
+        });
+      },
     }),
     createUserSegment: builder.mutation({
       query: (segmentData) => ({
@@ -461,6 +523,7 @@ export const {
   useGetKpisQuery,
   useGetRecommendationPerformanceQuery,
   useGetSegmentPerformanceQuery,
+  useGetSegmentPerformanceAnalyticsQuery,
   useGetRevenueDataQuery,
   useGetUserActivityDataQuery,
   useGetSearchAnalyticsQuery,

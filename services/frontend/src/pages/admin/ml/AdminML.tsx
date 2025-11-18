@@ -24,7 +24,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -41,20 +41,25 @@ import {
   YAxis,
 } from "recharts";
 import {
+  useGetAdminDashboardQuery,
   useGetMlConfigsQuery,
   useGetModelPerformanceQuery,
   useGetRecommendationPerformanceQuery,
   useGetSegmentPerformanceQuery,
+  useGetSegmentPerformanceAnalyticsQuery,
   useRecalculateSegmentMutation,
   useGetSegmentUsersQuery,
   useActivateMlConfigMutation,
-  useTrainModelsMutation,useGetUserSegmentsQuery
+  useTrainModelsMutation,
+  useGetUserSegmentsQuery,
 } from "../../../store/api/adminApi";
 
 // ML Model Management Component
 const MLModelManagement = () => {
   const [selectedModel, setSelectedModel] = useState(null);
   const [trainingProgress, setTrainingProgress] = useState({});
+  const [modelOverrides, setModelOverrides] = useState<Record<string, any>>({});
+  const modelOrderRef = useRef<string[]>([]);
 
   const {
     data: mlConfigs,
@@ -66,14 +71,163 @@ const MLModelManagement = () => {
   const [trainModel] = useTrainModelsMutation();
   const [toggleModel] = useActivateMlConfigMutation();
 
+  useEffect(() => {
+    if (!mlConfigs) {
+      modelOrderRef.current = [];
+      return;
+    }
+
+    const currentOrder = modelOrderRef.current;
+    const incomingIds = mlConfigs.map((model: any) => model.id);
+
+    const filteredExisting = currentOrder.filter((id) => incomingIds.includes(id));
+    const newIds = incomingIds.filter((id) => !filteredExisting.includes(id));
+
+    modelOrderRef.current = [...filteredExisting, ...newIds];
+  }, [mlConfigs]);
+
+  const normalizedModels = useMemo(() => {
+    if (!mlConfigs) {
+      return [];
+    }
+
+    const coalesceNumber = (...values: any[]) => {
+      for (const value of values) {
+        if (value === null || value === undefined) {
+          continue;
+        }
+
+        const numeric =
+          typeof value === "string" ? parseFloat(value) : value;
+
+        if (typeof numeric === "number" && Number.isFinite(numeric)) {
+          return numeric;
+        }
+      }
+
+      return null;
+    };
+
+    const coalesceDate = (...values: any[]) => {
+      for (const value of values) {
+        if (!value) {
+          continue;
+        }
+
+        const date = new Date(value);
+
+        if (!Number.isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      }
+
+      return null;
+    };
+
+    const mapped = mlConfigs.map((model: any) => {
+      const metrics = model.metrics ?? model.performance ?? {};
+
+      const accuracy = coalesceNumber(
+        model.accuracy,
+        model.accuracy_score,
+        metrics.accuracy,
+        metrics.accuracy_score
+      );
+
+      const precision = coalesceNumber(
+        model.precision,
+        model.precision_score,
+        metrics.precision,
+        metrics.precision_score
+      );
+
+      const recall = coalesceNumber(
+        model.recall,
+        model.recall_score,
+        metrics.recall,
+        metrics.recall_score
+      );
+
+      const f1Score =
+        coalesceNumber(model.f1_score, metrics.f1_score) ??
+        (precision !== null &&
+        recall !== null &&
+        precision + recall > 0
+          ? (2 * precision * recall) / (precision + recall)
+          : null);
+
+      const lastTrained = coalesceDate(
+        model.last_trained,
+        model.last_trained_at,
+        metrics.last_trained,
+        model.updated_at,
+        model.modified_at
+      );
+
+      const overrides = modelOverrides?.[model.id] ?? {};
+
+      return {
+        ...model,
+        accuracy: overrides.accuracy ?? accuracy,
+        precision: overrides.precision ?? precision,
+        recall: overrides.recall ?? recall,
+        f1_score: overrides.f1_score ?? f1Score,
+        last_trained: overrides.last_trained ?? lastTrained,
+      };
+    });
+
+    const order = modelOrderRef.current;
+
+    return mapped.sort((a, b) => {
+      const aIndex = order.indexOf(a.id);
+      const bIndex = order.indexOf(b.id);
+
+      if (aIndex === -1 && bIndex === -1) {
+        return 0;
+      }
+
+      if (aIndex === -1) {
+        return 1;
+      }
+
+      if (bIndex === -1) {
+        return -1;
+      }
+
+      return aIndex - bIndex;
+    });
+  }, [mlConfigs, modelOverrides]);
+
+  useEffect(() => {
+    if (!normalizedModels.length) {
+      setSelectedModel(null);
+      return;
+    }
+
+    setSelectedModel((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      const updated = normalizedModels.find(
+        (model: any) => model.id === previous.id
+      );
+
+      return updated ?? null;
+    });
+  }, [normalizedModels]);
+
   const handleTrainModel = async (model: any) => {
     try {
       setTrainingProgress((prev) => ({ ...prev, [model.id]: 0 }));
 
       // Train specific model using model type
+      const targetModelName =
+        model?.name ?? model?.model_name ?? model?.modelType ?? model?.model_type;
+
       const result = await trainModel({
         retrain_all: false,
-        specific_models: [model.model_type] // Use model_type instead of ID
+        specific_models: targetModelName ? [targetModelName] : undefined,
       }).unwrap();
 
       // Simulate training progress (in a real app, this would come from the API)
@@ -91,6 +245,14 @@ const MLModelManagement = () => {
       // Show success message after training completes
       setTimeout(() => {
         setTrainingProgress((prev) => ({ ...prev, [model.id]: null }));
+        setModelOverrides((prev) => ({
+          ...prev,
+          [model.id]: {
+            ...(prev?.[model.id] ?? {}),
+            last_trained: new Date().toISOString(),
+          },
+        }));
+
         refetchModels();
         // Add success alert
         alert(`Training completed successfully for ${model.name || model.model_type}`);
@@ -143,7 +305,7 @@ const MLModelManagement = () => {
     <div className="space-y-6">
       {/* ML Models Overview */}
       {selectedModel && (
-        <ModelPerformanceCharts modelId={selectedModel.id} />
+        <ModelPerformanceCharts model={selectedModel} />
       )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
@@ -163,7 +325,7 @@ const MLModelManagement = () => {
               </div>
 
               <div className="space-y-4">
-                {mlConfigs?.map((model: any) => (
+                {normalizedModels.map((model: any) => (
                   <motion.div
                     key={model.id}
                     initial={{ opacity: 0, y: 20 }}
@@ -229,7 +391,7 @@ const MLModelManagement = () => {
                         </div>
 
                         {/* Accuracy Score */}
-                        {model.accuracy && (
+                        {model.accuracy !== null && model.accuracy !== undefined && (
                           <div className="text-sm">
                             <span className="text-base-content/60">
                               Accuracy:{" "}
@@ -297,8 +459,8 @@ const MLModelManagement = () => {
                         </p>
                         <p className="font-medium text-sm">
                           {model.last_trained
-                            ? new Date(model.last_trained).toLocaleDateString()
-                            : "Never"}
+                            ? new Date(model.last_trained).toLocaleString()
+                            : "Not trained yet"}
                         </p>
                       </div>
                       <div className="text-center">
@@ -306,7 +468,7 @@ const MLModelManagement = () => {
                           Precision
                         </p>
                         <p className="font-medium text-sm">
-                          {model.precision
+                          {model.precision !== null && model.precision !== undefined
                             ? (model.precision * 100).toFixed(1) + "%"
                             : "N/A"}
                         </p>
@@ -314,7 +476,7 @@ const MLModelManagement = () => {
                       <div className="text-center">
                         <p className="text-xs text-base-content/60">Recall</p>
                         <p className="font-medium text-sm">
-                          {model.recall
+                          {model.recall !== null && model.recall !== undefined
                             ? (model.recall * 100).toFixed(1) + "%"
                             : "N/A"}
                         </p>
@@ -357,6 +519,60 @@ const ModelDetailsPanel = ({ model }) => {
   const { data: modelPerformance, isLoading: performanceLoading } =
     useGetModelPerformanceQuery({ configId: model.id });
 
+  const coalesceMetric = (...values: any[]) => {
+    for (const value of values) {
+      if (value === null || value === undefined) {
+        continue;
+      }
+
+      const numeric =
+        typeof value === "string" ? parseFloat(value) : value;
+
+      if (typeof numeric === "number" && Number.isFinite(numeric)) {
+        return numeric;
+      }
+    }
+
+    return null;
+  };
+
+  const accuracy = coalesceMetric(model?.accuracy, model?.accuracy_score);
+  const precision = coalesceMetric(
+    model?.precision,
+    model?.precision_score
+  );
+  const recall = coalesceMetric(model?.recall, model?.recall_score);
+  const f1Score = coalesceMetric(model?.f1_score) ??
+    (precision !== null &&
+    recall !== null &&
+    precision + recall > 0
+      ? (2 * precision * recall) / (precision + recall)
+      : null);
+
+  const formatPercentage = (value: number | null) =>
+    value !== null && value !== undefined
+      ? `${(value * 100).toFixed(1)}%`
+      : "N/A";
+
+  const livePerformance = modelPerformance?.recommendation_performance ?? {};
+  const liveTotalRecommendations = Number(
+    livePerformance.total_recommendations ??
+      livePerformance.totalRecommendations ??
+      0
+  );
+  const liveClickRate =
+    coalesceMetric(
+      livePerformance.click_through_rate,
+      livePerformance.click_rate,
+      livePerformance.ctr,
+      livePerformance.clickThroughRate
+    ) ?? 0;
+  const liveConversionRate =
+    coalesceMetric(
+      livePerformance.conversion_rate,
+      livePerformance.conversionRate
+    ) ?? 0;
+
   return (
     <div className="space-y-4">
       {/* Model Status */}
@@ -390,36 +606,28 @@ const ModelDetailsPanel = ({ model }) => {
           <div className="p-3 bg-success/10 rounded-lg border border-success/20">
             <p className="text-xs text-success">Accuracy</p>
             <p className="font-bold text-success">
-              {model.accuracy ? (model.accuracy * 100).toFixed(1) + "%" : "N/A"}
+              {formatPercentage(accuracy)}
             </p>
           </div>
 
           <div className="p-3 bg-info/10 rounded-lg border border-info/20">
             <p className="text-xs text-info">Precision</p>
             <p className="font-bold text-info">
-              {model.precision
-                ? (model.precision * 100).toFixed(1) + "%"
-                : "N/A"}
+              {formatPercentage(precision)}
             </p>
           </div>
 
           <div className="p-3 bg-warning/10 rounded-lg border border-warning/20">
             <p className="text-xs text-warning">Recall</p>
             <p className="font-bold text-warning">
-              {model.recall ? (model.recall * 100).toFixed(1) + "%" : "N/A"}
+              {formatPercentage(recall)}
             </p>
           </div>
 
           <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
             <p className="text-xs text-primary">F1 Score</p>
             <p className="font-bold text-primary">
-              {model.accuracy && model.precision && model.recall
-                ? (
-                    ((2 * model.precision * model.recall) /
-                      (model.precision + model.recall)) *
-                    100
-                  ).toFixed(1) + "%"
-                : "N/A"}
+              {formatPercentage(f1Score)}
             </p>
           </div>
         </div>
@@ -442,8 +650,7 @@ const ModelDetailsPanel = ({ model }) => {
                   Recommendations
                 </span>
                 <span className="font-medium">
-                  {modelPerformance.recommendation_performance?.total_recommendations?.toLocaleString() ||
-                    0}
+                  {liveTotalRecommendations.toLocaleString()}
                 </span>
               </div>
 
@@ -453,9 +660,7 @@ const ModelDetailsPanel = ({ model }) => {
                   Click-through Rate
                 </span>
                 <span className="font-medium text-primary">
-                  {modelPerformance.recommendation_performance
-                    ?.click_through_rate || 0}
-                  %
+                  {liveClickRate.toFixed(2)}%
                 </span>
               </div>
 
@@ -465,9 +670,7 @@ const ModelDetailsPanel = ({ model }) => {
                   Conversion Rate
                 </span>
                 <span className="font-medium text-success">
-                  {modelPerformance.recommendation_performance
-                    ?.conversion_rate || 0}
-                  %
+                  {liveConversionRate.toFixed(2)}%
                 </span>
               </div>
             </div>
@@ -490,10 +693,36 @@ const ModelDetailsPanel = ({ model }) => {
 
 // Model Performance Charts Component
 
-const ModelPerformanceCharts = ({ modelName }) => {
-  const { data: modelPerformance, isLoading } = useGetModelPerformanceQuery({
-    modelName,
-  });
+const ModelPerformanceCharts = ({ model }) => {
+  const configId = model?.id;
+  const modelDisplayName =
+    model?.model_name ?? model?.model_type ?? "Model";
+
+  const { data: modelPerformance, isLoading } = useGetModelPerformanceQuery(
+    { configId },
+    { skip: !configId }
+  );
+
+  const coalesceNumber = (...values: any[]) => {
+    for (const value of values) {
+      if (value === null || value === undefined) {
+        continue;
+      }
+
+      const numeric =
+        typeof value === "string" ? parseFloat(value) : value;
+
+      if (typeof numeric === "number" && Number.isFinite(numeric)) {
+        return numeric;
+      }
+    }
+
+    return null;
+  };
+
+  if (!configId) {
+    return null;
+  }
 
   if (isLoading) {
     return (
@@ -508,7 +737,7 @@ const ModelPerformanceCharts = ({ modelName }) => {
       <div className="card bg-base-100 border border-base-300 shadow-lg">
         <div className="card-body">
           <div className="alert alert-warning">
-            <span>No performance data available for {modelName}</span>
+            <span>No performance data available for {modelDisplayName}</span>
           </div>
         </div>
       </div>
@@ -516,39 +745,130 @@ const ModelPerformanceCharts = ({ modelName }) => {
   }
 
   // Extract real data from the API response
-  const {
-    accuracy,
-    precision,
-    recall,
-    last_trained,
-    recommendation_performance: {
-      total_recommendations,
-      click_through_rate,
-      conversion_rate,
-      average_score,
-    },
-  } = modelPerformance;
+  const metrics = modelPerformance.metrics ?? {};
+
+  const accuracy = coalesceNumber(
+    modelPerformance.accuracy,
+    modelPerformance.accuracy_score,
+    metrics.accuracy,
+    metrics.accuracy_score,
+    model?.accuracy,
+    model?.accuracy_score
+  );
+
+  const precision = coalesceNumber(
+    modelPerformance.precision,
+    modelPerformance.precision_score,
+    metrics.precision,
+    metrics.precision_score,
+    model?.precision,
+    model?.precision_score
+  );
+
+  const recall = coalesceNumber(
+    modelPerformance.recall,
+    modelPerformance.recall_score,
+    metrics.recall,
+    metrics.recall_score,
+    model?.recall,
+    model?.recall_score
+  );
+
+  const lastTrainedRaw =
+    modelPerformance.last_trained ??
+    modelPerformance.last_trained_at ??
+    metrics.last_trained ??
+    model?.last_trained ??
+    null;
+
+  const recommendationPerformance =
+    modelPerformance.recommendation_performance ?? {};
+
+  const total_recommendations = Number(
+    recommendationPerformance.total_recommendations ??
+      recommendationPerformance.totalRecommendations ??
+      0
+  );
+  const rawClickThroughRate = coalesceNumber(
+    recommendationPerformance.click_through_rate,
+    recommendationPerformance.click_rate,
+    recommendationPerformance.ctr,
+    recommendationPerformance.clickThroughRate
+  );
+  const click_through_rate = rawClickThroughRate ?? 0;
+  const hasClickThroughRate = rawClickThroughRate !== null;
+
+  const rawConversionRate = coalesceNumber(
+    recommendationPerformance.conversion_rate,
+    recommendationPerformance.conversionRate
+  );
+  const conversion_rate = rawConversionRate ?? 0;
+  const hasConversionRate = rawConversionRate !== null;
+
+  const rawAverageScore = coalesceNumber(
+    recommendationPerformance.average_score,
+    recommendationPerformance.avg_score,
+    recommendationPerformance.averageScore
+  );
+  const average_score = rawAverageScore ?? 0;
+  const hasAverageScore = rawAverageScore !== null;
+
+  const accuracyPercent =
+    accuracy !== null && accuracy !== undefined ? accuracy * 100 : null;
+  const precisionPercent =
+    precision !== null && precision !== undefined ? precision * 100 : null;
+  const recallPercent =
+    recall !== null && recall !== undefined ? recall * 100 : null;
+  const averageScorePercent = average_score * 100;
+
+  const clickThroughRateDisplay = hasClickThroughRate
+    ? `${click_through_rate.toFixed(2)}%`
+    : "N/A";
+  const conversionRateDisplay = hasConversionRate
+    ? `${conversion_rate.toFixed(2)}%`
+    : "N/A";
+  const averageScoreDisplay = hasAverageScore
+    ? `${averageScorePercent.toFixed(1)}%`
+    : "N/A";
+  const businessImpactLabel = hasConversionRate
+    ? conversion_rate > 50
+      ? "high"
+      : conversion_rate > 30
+      ? "moderate"
+      : "low"
+    : "unknown";
+  const businessImpactSummary = hasConversionRate
+    ? `conversion rate (${conversionRateDisplay}) from ${total_recommendations.toLocaleString()} recommendations served.`
+    : `conversion data across ${total_recommendations.toLocaleString()} recommendations is unavailable.`;
 
   // Real ML metrics data
   const mlMetricsData = [
     {
       metric: "Accuracy",
-      value: (accuracy * 100).toFixed(2),
-      rawValue: accuracy,
+      value: accuracyPercent ?? 0,
+      displayValue:
+        accuracyPercent !== null ? `${accuracyPercent.toFixed(2)}%` : "N/A",
+      rawValue: accuracy ?? 0,
       color: "#10b981",
       description: "Overall prediction accuracy",
     },
     {
       metric: "Precision",
-      value: (precision * 100).toFixed(2),
-      rawValue: precision,
+      value: precisionPercent ?? 0,
+      displayValue:
+        precisionPercent !== null
+          ? `${precisionPercent.toFixed(2)}%`
+          : "N/A",
+      rawValue: precision ?? 0,
       color: "#3b82f6",
       description: "Relevant recommendations ratio",
     },
     {
       metric: "Recall",
-      value: (recall * 100).toFixed(2),
-      rawValue: recall,
+      value: recallPercent ?? 0,
+      displayValue:
+        recallPercent !== null ? `${recallPercent.toFixed(2)}%` : "N/A",
+      rawValue: recall ?? 0,
       color: "#f59e0b",
       description: "Coverage of relevant items",
     },
@@ -558,22 +878,25 @@ const ModelPerformanceCharts = ({ modelName }) => {
   const businessMetricsData = [
     {
       metric: "CTR",
-      value: click_through_rate.toFixed(2),
-      rawValue: click_through_rate,
+  value: click_through_rate,
+  displayValue: clickThroughRateDisplay,
+  rawValue: hasClickThroughRate ? click_through_rate : null,
       color: "#8b5cf6",
       description: "Click-through rate",
     },
     {
       metric: "Conversion",
-      value: conversion_rate.toFixed(2),
-      rawValue: conversion_rate,
+  value: conversion_rate,
+  displayValue: conversionRateDisplay,
+  rawValue: hasConversionRate ? conversion_rate : null,
       color: "#ef4444",
       description: "Conversion rate",
     },
     {
       metric: "Avg Score",
-      value: (average_score * 100).toFixed(1),
-      rawValue: average_score * 100,
+  value: averageScorePercent,
+  displayValue: averageScoreDisplay,
+  rawValue: hasAverageScore ? averageScorePercent : null,
       color: "#06b6d4",
       description: "Average recommendation score",
     },
@@ -583,46 +906,84 @@ const ModelPerformanceCharts = ({ modelName }) => {
   const comparisonData = [
     {
       category: "ML Performance",
-      accuracy: accuracy * 100,
-      precision: precision * 100,
-      recall: recall * 100,
+      accuracy: accuracyPercent ?? 0,
+      precision: precisionPercent ?? 0,
+      recall: recallPercent ?? 0,
     },
     {
       category: "Business Impact",
-      ctr: click_through_rate,
-      conversion: conversion_rate,
-      avgScore: average_score * 100,
+  ctr: click_through_rate,
+  conversion: conversion_rate,
+  avgScore: averageScorePercent,
     },
   ];
 
   // F1 Score calculation
-  const f1Score = (2 * (precision * recall)) / (precision + recall);
+  const f1Score =
+    precision !== null &&
+    precision !== undefined &&
+    recall !== null &&
+    recall !== undefined &&
+    precision + recall > 0
+      ? (2 * precision * recall) / (precision + recall)
+      : null;
+
+  const totalConversions = Math.max(
+    0,
+    Math.round(total_recommendations * (conversion_rate / 100))
+  );
+  const totalClicks = Math.max(
+    0,
+    Math.round(total_recommendations * (click_through_rate / 100))
+  );
+  const clickedOnlyRecommendations = Math.max(
+    0,
+    totalClicks - totalConversions
+  );
+  const noInteractionRecommendations = Math.max(
+    0,
+    total_recommendations - totalConversions - clickedOnlyRecommendations
+  );
+  const successfulRecommendations = totalConversions;
+
+  const conversionCountDisplay = hasConversionRate
+    ? `${totalConversions.toLocaleString()} conversions`
+    : "No conversion data yet";
+  const clickCountDisplay = hasClickThroughRate
+    ? `${totalClicks.toLocaleString()} clicks`
+    : "No click data yet";
 
   // Performance breakdown for pie chart
   const performanceBreakdown = [
     {
       name: "Successful Recs",
-      value: Math.round(total_recommendations * (conversion_rate / 100)),
+      value: successfulRecommendations,
       color: "#10b981",
     },
     {
       name: "Clicked Only",
-      value: Math.round(
-        total_recommendations * ((click_through_rate - conversion_rate) / 100)
-      ),
+      value: clickedOnlyRecommendations,
       color: "#f59e0b",
     },
     {
       name: "No Interaction",
-      value: Math.round(
-        total_recommendations * ((100 - click_through_rate) / 100)
-      ),
+      value: noInteractionRecommendations,
       color: "#ef4444",
     },
   ];
 
-  const formatLastTrained = (dateString) => {
-    return new Date(dateString).toLocaleString("en-US", {
+  const formatLastTrained = (dateString?: string | null) => {
+    if (!dateString) {
+      return "Not trained yet";
+    }
+
+    const parsed = new Date(dateString);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return "Not trained yet";
+    }
+
+    return parsed.toLocaleString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -630,6 +991,30 @@ const ModelPerformanceCharts = ({ modelName }) => {
       minute: "2-digit",
     });
   };
+
+  const accuracySummaryLabel =
+    accuracy === null || accuracy === undefined
+      ? "insufficient"
+      : accuracy > 0.9
+      ? "excellent"
+      : accuracy > 0.8
+      ? "good"
+      : "moderate";
+
+  const accuracySummaryValue =
+    accuracy === null || accuracy === undefined
+      ? "N/A"
+      : (accuracy * 100).toFixed(1);
+
+  const f1SummaryLabel =
+    f1Score === null
+      ? "insufficient"
+      : f1Score > 0.4
+      ? "balanced"
+      : "imbalanced";
+
+  const f1SummaryValue =
+    f1Score === null ? "N/A" : (f1Score * 100).toFixed(1);
 
   return (
     <div className="space-y-6">
@@ -640,13 +1025,13 @@ const ModelPerformanceCharts = ({ modelName }) => {
             <div>
               <h3 className="text-xl font-semibold flex items-center gap-2">
                 <BarChart3 className="w-6 h-6 text-primary" />
-                Performance Analytics - {modelName}
+                Performance Analytics - {modelDisplayName}
               </h3>
               <p className="text-sm text-base-content/70 mt-1">
-                Last trained: {formatLastTrained(last_trained)}
+                Last trained: {formatLastTrained(lastTrainedRaw)}
               </p>
             </div>
-            <div className="stats stats-horizontal shadow">
+              <div className="stats stats-horizontal shadow">
               <div className="stat">
                 <div className="stat-title">Total Recommendations</div>
                 <div className="stat-value text-primary">
@@ -656,7 +1041,9 @@ const ModelPerformanceCharts = ({ modelName }) => {
               <div className="stat">
                 <div className="stat-title">F1 Score</div>
                 <div className="stat-value text-secondary">
-                  {(f1Score * 100).toFixed(1)}%
+                    {f1Score !== null
+                      ? `${(f1Score * 100).toFixed(1)}%`
+                      : "N/A"}
                 </div>
               </div>
             </div>
@@ -713,7 +1100,7 @@ const ModelPerformanceCharts = ({ modelName }) => {
                       {metric.description}
                     </span>
                   </div>
-                  <span className="font-bold">{metric.value}%</span>
+                  <span className="font-bold">{metric.displayValue}</span>
                 </div>
               ))}
             </div>
@@ -773,7 +1160,7 @@ const ModelPerformanceCharts = ({ modelName }) => {
                       {metric.description}
                     </span>
                   </div>
-                  <span className="font-bold">{metric.value}%</span>
+                  <span className="font-bold">{metric.displayValue}</span>
                 </div>
               ))}
             </div>
@@ -838,14 +1225,9 @@ const ModelPerformanceCharts = ({ modelName }) => {
                   </div>
                   <div className="stat-title">Conversion Rate</div>
                   <div className="stat-value text-success">
-                    {conversion_rate.toFixed(2)}%
+                    {conversionRateDisplay}
                   </div>
-                  <div className="stat-desc">
-                    {Math.round(
-                      total_recommendations * (conversion_rate / 100)
-                    )}{" "}
-                    conversions
-                  </div>
+                  <div className="stat-desc">{conversionCountDisplay}</div>
                 </div>
 
                 <div className="stat">
@@ -866,14 +1248,9 @@ const ModelPerformanceCharts = ({ modelName }) => {
                   </div>
                   <div className="stat-title">Click-through Rate</div>
                   <div className="stat-value text-warning">
-                    {click_through_rate.toFixed(2)}%
+                    {clickThroughRateDisplay}
                   </div>
-                  <div className="stat-desc">
-                    {Math.round(
-                      total_recommendations * (click_through_rate / 100)
-                    )}{" "}
-                    clicks
-                  </div>
+                  <div className="stat-desc">{clickCountDisplay}</div>
                 </div>
 
                 <div className="stat">
@@ -894,7 +1271,7 @@ const ModelPerformanceCharts = ({ modelName }) => {
                   </div>
                   <div className="stat-title">Average Score</div>
                   <div className="stat-value text-info">
-                    {(average_score * 100).toFixed(1)}%
+                    {averageScoreDisplay}
                   </div>
                   <div className="stat-desc">Recommendation confidence</div>
                 </div>
@@ -924,25 +1301,13 @@ const ModelPerformanceCharts = ({ modelName }) => {
           <div className="text-xs mt-1">
             Model shows{" "}
             <strong>
-              {accuracy > 0.9
-                ? "excellent"
-                : accuracy > 0.8
-                ? "good"
-                : "moderate"}
+              {accuracySummaryLabel}
             </strong>{" "}
-            accuracy ({(accuracy * 100).toFixed(1)}%) with{" "}
-            <strong>{f1Score > 0.4 ? "balanced" : "imbalanced"}</strong>{" "}
-            precision-recall trade-off (F1: {(f1Score * 100).toFixed(1)}%).
-            Business impact:{" "}
-            <strong>
-              {conversion_rate > 50
-                ? "high"
-                : conversion_rate > 30
-                ? "moderate"
-                : "low"}
-            </strong>{" "}
-            conversion rate from {total_recommendations.toLocaleString()}{" "}
-            recommendations served.
+            accuracy ({accuracySummaryValue}%) with{" "}
+            <strong>{f1SummaryLabel}</strong>{" "}
+            precision-recall trade-off (F1: {f1SummaryValue}%).
+            Business impact: <strong>{businessImpactLabel}</strong> {" "}
+            {businessImpactSummary}
           </div>
         </div>
       </div>
@@ -967,6 +1332,72 @@ const RecommendationManagement = () => {
 
   // Normalize API response: if object, convert to array
   const recPerformance = rawRecPerformance ? [rawRecPerformance] : [];
+
+  const { data: dashboardMetrics } = useGetAdminDashboardQuery({
+    days: timeRange,
+  });
+
+  const averageOrderValue =
+    dashboardMetrics?.orders?.average ??
+    dashboardMetrics?.revenue?.daily_average ??
+    0;
+
+  const processedPerformance = useMemo(() => {
+    if (!Array.isArray(recPerformance)) {
+      return [];
+    }
+
+    return recPerformance.map((algorithm: any) => {
+      const totalRecommendations = Number(
+        algorithm.total_recommendations ?? algorithm.impressions ?? 0
+      );
+
+      const clickRate = Number(
+        algorithm.click_through_rate ?? algorithm.click_rate ?? 0
+      );
+
+      const conversionRate = Number(algorithm.conversion_rate ?? 0);
+
+      const computedClicks =
+        totalRecommendations > 0
+          ? Math.round((clickRate / 100) * totalRecommendations)
+          : 0;
+      const clicks = Number(
+        algorithm.total_clicks ?? algorithm.clicks ?? computedClicks
+      );
+
+      const computedConversions =
+        totalRecommendations > 0
+          ? Math.round((conversionRate / 100) * totalRecommendations)
+          : 0;
+      const conversions = Number(
+        algorithm.total_conversions ??
+          algorithm.conversions ??
+          computedConversions
+      );
+
+      const derivedRevenue = Math.round(
+        conversions * (averageOrderValue || 0)
+      );
+      const revenueImpact = Number(
+        algorithm.revenue_impact ?? derivedRevenue
+      );
+
+      return {
+        ...algorithm,
+        total_recommendations: totalRecommendations,
+        impressions: totalRecommendations,
+        click_rate: clickRate,
+        click_through_rate: clickRate,
+        conversion_rate: conversionRate,
+        total_clicks: clicks,
+        clicks,
+        total_conversions: conversions,
+        conversions,
+        revenue_impact: revenueImpact,
+      };
+    });
+  }, [recPerformance, averageOrderValue]);
 
   const algorithms = [
     { id: "hybrid", name: "Hybrid Model", color: "warning" },
@@ -1026,81 +1457,147 @@ const RecommendationManagement = () => {
       </div>
 
       {/* Algorithm Performance Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-  {Array.isArray(recPerformance) && recPerformance.map((algorithm: any, index: number) => (
-          <motion.div
-            key={algorithm.algorithm}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-            className="card bg-base-100 border border-base-300 shadow-lg hover:shadow-xl transition-all"
-          >
-            <div className="card-body p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-lg">
-                  {(() => {
-                    const displayMap: Record<string, string> = {
-                      hybrid: "Hybrid Model",
-                      collaborative_filtering: "Collaborative",
-                      content_based: "Content Based",
-                    };
-                    const key = algorithm.algorithm;
-                    return (
-                      displayMap[key] ||
-                      (String(key).replace(/_/g, " ") as string)
-                    );
-                  })()}
-                </h3>
-                <div className="badge badge-primary">
-                  {algorithm.impressions?.toLocaleString()}
-                </div>
+     {/* Algorithm Performance Cards */}
+      {processedPerformance.length === 0 ? (
+        <div className="w-full">
+          <div className="card bg-gradient-to-br from-base-200/40 to-base-300/20 border-2 border-dashed border-base-300">
+            <div className="card-body items-center text-center py-16">
+              <div className="bg-base-300/50 rounded-full p-6 mb-4">
+                <Target className="w-20 h-20 text-base-content/40" />
               </div>
-
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-base-content/60 flex items-center gap-2">
-                    <MousePointer className="w-3 h-3" />
-                    CTR
-                  </span>
-                  <span className="font-bold text-primary">
-                    {algorithm.click_through_rate}%
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-base-content/60 flex items-center gap-2">
-                    <ShoppingCart className="w-3 h-3" />
-                    Conversion
-                  </span>
-                  <span className="font-bold text-success">
-                    {algorithm.conversion_rate}%
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-base-content/60 flex items-center gap-2">
-                    <TrendingUp className="w-3 h-3" />
-                    Revenue
-                  </span>
-                  <span className="font-bold text-warning">
-                    ${algorithm.revenue_impact?.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-base-300">
-                <div className="flex justify-between text-xs text-base-content/50">
-                  <span>Clicks: {algorithm.clicks}</span>
-                  <span>Conversions: {algorithm.conversions}</span>
-                </div>
-              </div>
+              <h3 className="text-2xl font-bold text-base-content/70 mb-2">
+                No performance data available
+              </h3>
+              <p className="text-base-content/60 max-w-md">
+                Try selecting a different algorithm or time range to see detailed metrics and insights.
+              </p>
             </div>
-          </motion.div>
-        ))}
-      </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {processedPerformance.map((algorithm: any, index: number) => (
+            <motion.div
+              key={algorithm.algorithm ?? index}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1, duration: 0.3 }}
+              className="group relative"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-secondary/10 to-accent/10 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+              
+              <div className="relative card bg-base-100 border-2 border-base-300 hover:border-primary/50 shadow-xl hover:shadow-2xl transition-all duration-300 overflow-hidden">
+                {/* Decorative gradient background */}
+                <div className="absolute top-0 right-0 w-96 h-full bg-gradient-to-l from-primary/5 to-transparent"></div>
+                
+                <div className="card-body p-6 relative z-10">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-base-200">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-gradient-to-br from-primary to-primary/70 rounded-xl shadow-lg">
+                        <Brain className="w-7 h-7 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-2xl text-base-content">
+                          {(() => {
+                            const displayMap: Record<string, string> = {
+                              hybrid: "Hybrid Model",
+                              collaborative_filtering: "Collaborative Filtering",
+                              content_based: "Content Based",
+                            };
+                            const key = algorithm.algorithm;
+                            return (
+                              displayMap[key] ||
+                              (String(key).replace(/_/g, " ") as string)
+                            );
+                          })()}
+                        </h3>
+                        <p className="text-sm text-base-content/60 flex items-center gap-2 mt-1">
+                          <Eye className="w-4 h-4" />
+                          <span className="font-semibold">{algorithm.impressions?.toLocaleString()}</span> impressions
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Metrics Grid - Side by Side */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* CTR Metric */}
+                    <div className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl p-5 border-2 border-primary/20 hover:border-primary/40 transition-all">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="p-2 bg-primary/20 rounded-lg">
+                          <MousePointer className="w-5 h-5 text-primary" />
+                        </div>
+                        <p className="text-sm font-semibold text-base-content/70">Click-Through Rate</p>
+                      </div>
+                      <p className="text-3xl font-bold text-primary mb-2">
+                        {Number(algorithm.click_through_rate ?? 0).toFixed(2)}%
+                      </p>
+                      <div className="w-full bg-base-300/50 rounded-full h-2 overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(Number(algorithm.click_through_rate ?? 0) * 2, 100)}%` }}
+                          transition={{ duration: 1, delay: index * 0.1 + 0.3 }}
+                          className="bg-gradient-to-r from-primary to-primary/60 rounded-full h-2"
+                        ></motion.div>
+                      </div>
+                      <p className="text-xs text-base-content/60 mt-2 flex items-center gap-1">
+                        <MousePointer className="w-3 h-3" />
+                        {algorithm.clicks?.toLocaleString()} total clicks
+                      </p>
+                    </div>
+
+                    {/* Conversion Rate Metric */}
+                    <div className="bg-gradient-to-br from-success/10 to-success/5 rounded-xl p-5 border-2 border-success/20 hover:border-success/40 transition-all">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="p-2 bg-success/20 rounded-lg">
+                          <ShoppingCart className="w-5 h-5 text-success" />
+                        </div>
+                        <p className="text-sm font-semibold text-base-content/70">Conversion Rate</p>
+                      </div>
+                      <p className="text-3xl font-bold text-success mb-2">
+                        {Number(algorithm.conversion_rate ?? 0).toFixed(2)}%
+                      </p>
+                      <div className="w-full bg-base-300/50 rounded-full h-2 overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(Number(algorithm.conversion_rate ?? 0) * 2, 100)}%` }}
+                          transition={{ duration: 1, delay: index * 0.1 + 0.4 }}
+                          className="bg-gradient-to-r from-success to-success/60 rounded-full h-2"
+                        ></motion.div>
+                      </div>
+                      <p className="text-xs text-base-content/60 mt-2 flex items-center gap-1">
+                        <ShoppingCart className="w-3 h-3" />
+                        {algorithm.conversions?.toLocaleString()} conversions
+                      </p>
+                    </div>
+
+                    {/* Revenue Impact */}
+                    <div className="bg-gradient-to-br from-warning/10 to-warning/5 rounded-xl p-5 border-2 border-warning/20 hover:border-warning/40 transition-all">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="p-2 bg-warning/20 rounded-lg">
+                          <TrendingUp className="w-5 h-5 text-warning" />
+                        </div>
+                        <p className="text-sm font-semibold text-base-content/70">Revenue Impact</p>
+                      </div>
+                      <p className="text-3xl font-bold text-warning mb-2">
+                        ${Number(algorithm.revenue_impact ?? 0).toLocaleString()}
+                      </p>
+                      <div className="w-full h-2 mb-2"></div>
+                      <p className="text-xs text-base-content/60 mt-2">
+                        Generated from recommendations
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
 
       {/* Performance Chart */}
-      <RecommendationPerformanceChart algorithms={recPerformance} />
+      <RecommendationPerformanceChart algorithms={processedPerformance} />
     </div>
   );
 };
@@ -1230,6 +1727,22 @@ const RecommendationPerformanceChart = ({ algorithms }) => {
 
 // User Segmentation Management Component
 
+type UserSegment = {
+  id: string;
+  segment_id?: string;
+  segment_name: string;
+  name?: string;
+  description?: string;
+  user_count?: number;
+  member_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  last_updated?: string;
+  is_active?: boolean;
+  auto_update?: boolean;
+  update_frequency?: string;
+};
+
 const UserSegmentationManagement = () => {
   const [isCreatingSegment, setIsCreatingSegment] = useState(false);
   const [newSegment, setNewSegment] = useState({
@@ -1239,15 +1752,211 @@ const UserSegmentationManagement = () => {
   });
 
   const {
-    data: userSegments,
+    data: userSegments = [],
     isLoading: segmentsLoading,
     refetch: refetchSegments,
   } = useGetUserSegmentsQuery({});
 
-  const { data: segmentPerformance, isLoading: performanceLoading } =
+  const segments: UserSegment[] = Array.isArray(userSegments)
+    ? (userSegments as UserSegment[])
+    : [];
+
+  const { data: rawSegmentPerformance, isLoading: performanceLoading } =
     useGetSegmentPerformanceQuery({});
 
+  const { data: segmentPerformanceAnalytics, isLoading: analyticsLoading } =
+    useGetSegmentPerformanceAnalyticsQuery({});
+
   const [refreshSegments] = useRecalculateSegmentMutation();
+
+  const performanceData = Array.isArray(rawSegmentPerformance)
+    ? rawSegmentPerformance
+    : [];
+
+  const segmentAnalytics = Array.isArray(segmentPerformanceAnalytics)
+    ? segmentPerformanceAnalytics
+    : [];
+
+  const totalMembers = segmentAnalytics.reduce(
+    (sum, segment) => sum + (segment?.member_count ?? 0),
+    0
+  );
+  const totalRevenue = segmentAnalytics.reduce(
+    (sum, segment) => sum + (segment?.total_revenue ?? 0),
+    0
+  );
+  const totalSegmentUsers = performanceData.reduce(
+    (sum: number, seg: { user_count?: number }) => sum + (seg.user_count ?? 0),
+    0
+  );
+
+  const normalizeKey = (value?: string) => (value ?? "").toLowerCase();
+  const segmentMetaByKey = new Map<string, UserSegment>();
+  segments.forEach((segment) => {
+    const key = normalizeKey(
+      segment?.segment_name ?? segment?.name ?? segment?.segment_id
+    );
+    if (!segmentMetaByKey.has(key)) {
+      segmentMetaByKey.set(key, segment);
+    }
+  });
+  const analyticsByKey = new Map<string, any>();
+  segmentAnalytics.forEach((segment) => {
+    analyticsByKey.set(normalizeKey(segment?.segment_name), segment);
+  });
+
+  const buildCombinedSegment = (
+    key: string,
+    {
+      base,
+      analytics,
+      meta,
+    }: {
+      base?: any;
+      analytics?: any;
+      meta?: UserSegment | undefined;
+    }
+  ) => {
+    const name =
+      analytics?.segment_name ??
+      base?.segment_name ??
+      base?.name ??
+      meta?.segment_name ??
+      meta?.name ??
+      key;
+
+    const memberCountValue =
+      analytics?.member_count ??
+      base?.member_count ??
+      base?.user_count ??
+      meta?.member_count ??
+      0;
+
+    const ordersCountValue =
+      analytics?.orders_count ??
+      base?.orders_count ??
+      meta?.orders_count ??
+      0;
+
+    const totalRevenueValue =
+      analytics?.total_revenue ??
+      base?.total_revenue ??
+      base?.revenue_contribution ??
+      meta?.total_revenue ??
+      0;
+
+    const avgOrderValue =
+      analytics?.avg_order_value ??
+      base?.avg_order_value ??
+      base?.average_order_value ??
+      (ordersCountValue > 0 ? totalRevenueValue / ordersCountValue : 0);
+
+    const revenuePerMemberValue =
+      analytics?.revenue_per_member ??
+      base?.revenue_per_member ??
+      (memberCountValue > 0 ? totalRevenueValue / memberCountValue : 0);
+
+    const conversionRateValue =
+      analytics?.conversion_rate ??
+      base?.conversion_rate ??
+      (memberCountValue > 0 ? (ordersCountValue / memberCountValue) * 100 : 0);
+
+    const createdAt =
+      meta?.created_at ??
+      base?.created_at ??
+      base?.createdAt ??
+      meta?.metadata?.created_at ??
+      null;
+
+    const updatedAt =
+      meta?.updated_at ??
+      base?.updated_at ??
+      base?.updatedAt ??
+      base?.last_updated ??
+      meta?.metadata?.updated_at ??
+      createdAt;
+
+    const metadata: Record<string, any> = {
+      ...(meta?.metadata ?? {}),
+      ...(base?.metadata ?? {}),
+    };
+
+    metadata.update_frequency =
+      metadata.update_frequency ??
+      meta?.update_frequency ??
+      base?.update_frequency ??
+      analytics?.update_frequency ??
+      null;
+    metadata.segment_type =
+      metadata.segment_type ??
+      meta?.segment_type ??
+      base?.segment_type ??
+      null;
+    metadata.tags = metadata.tags ?? analytics?.top_tags ?? [];
+    metadata.top_products = analytics?.top_products ?? metadata.top_products;
+
+    return {
+      segment_id: meta?.segment_id ?? base?.segment_id ?? base?.id ?? key,
+      segment_name: name,
+      description:
+        base?.description ??
+        meta?.description ??
+        "No description available.",
+      user_count: memberCountValue,
+      member_count: memberCountValue,
+      orders_count: ordersCountValue,
+      avg_order_value: avgOrderValue,
+      total_revenue: totalRevenueValue,
+      revenue_contribution: totalRevenueValue,
+      revenue_per_member: revenuePerMemberValue,
+      conversion_rate: conversionRateValue,
+      created_at: createdAt,
+      updated_at: updatedAt,
+      last_updated: updatedAt,
+      metadata,
+      status:
+        base?.status ?? meta?.status ?? (memberCountValue > 0 ? "active" : "inactive"),
+    };
+  };
+
+  const seenKeys = new Set<string>();
+  const combinedSegments: any[] = [];
+
+  performanceData.forEach((segment) => {
+    const key = normalizeKey(
+      segment?.segment_name ?? segment?.name ?? segment?.segment_id
+    );
+    const meta = segmentMetaByKey.get(key);
+    const analytics = analyticsByKey.get(key);
+    combinedSegments.push(
+      buildCombinedSegment(key, { base: segment, analytics, meta })
+    );
+    seenKeys.add(key);
+  });
+
+  segmentAnalytics.forEach((segment) => {
+    const key = normalizeKey(segment?.segment_name);
+    if (seenKeys.has(key)) {
+      return;
+    }
+
+    const meta = segmentMetaByKey.get(key);
+    combinedSegments.push(
+      buildCombinedSegment(key, { analytics: segment, meta })
+    );
+    seenKeys.add(key);
+  });
+
+  segmentMetaByKey.forEach((meta, key) => {
+    if (seenKeys.has(key)) {
+      return;
+    }
+
+    combinedSegments.push(buildCombinedSegment(key, { meta }));
+    seenKeys.add(key);
+  });
+
+  combinedSegments.sort((a, b) => (b.member_count ?? 0) - (a.member_count ?? 0));
 
   const handleRefreshSegments = async () => {
     try {
@@ -1258,7 +1967,7 @@ const UserSegmentationManagement = () => {
     }
   };
 
-  if (segmentsLoading || performanceLoading) {
+  if (segmentsLoading || performanceLoading || analyticsLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="loading loading-spinner loading-lg text-primary"></div>
@@ -1298,29 +2007,25 @@ const UserSegmentationManagement = () => {
         {[
           {
             title: "Total Segments",
-            value: userSegments.data.length || 0,
+            value: combinedSegments.length || 0,
             icon: Users,
             color: "primary",
           },
           {
             title: "Total Users",
-            value:
-              segmentPerformance?.reduce(
-                (sum: any, seg: { user_count: any }) => sum + seg.user_count,
-                0
-              ) || 0,
+            value: (segmentAnalytics.length ? totalMembers : totalSegmentUsers).toLocaleString(),
             icon: Target,
             color: "success",
           },
           {
             title: "Avg Conversion",
-            value: segmentPerformance?.length
+            value: performanceData.length
               ? (
-                  segmentPerformance.reduce(
+                  performanceData.reduce(
                     (sum: any, seg: { conversion_rate: any }) =>
                       sum + seg.conversion_rate,
                     0
-                  ) / segmentPerformance.length
+                  ) / performanceData.length
                 ).toFixed(1) + "%"
               : "0%",
             icon: TrendingUp,
@@ -1330,20 +2035,17 @@ const UserSegmentationManagement = () => {
             title: "Total Revenue",
             value:
               "$" +
-              (segmentPerformance
-                ?.reduce(
-                  (sum: any, seg: { revenue_contribution: any }) =>
-                    sum + seg.revenue_contribution,
-                  0
-                )
-                .toLocaleString() || 0),
+              (totalRevenue || 0).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
             icon: Activity,
             color: "info",
           },
         ].map((metric, index) => (
           <div
             key={index}
-            className={`card bg-gradient-to-br from-${metric.color}/10 to-${metric.color}/20 border border-${metric.color}/30 shadow-md hover:shadow-lg transition-shadow rounded-xl`}
+            className={`card bg-linear-to-br from-${metric.color}/10 to-${metric.color}/20 border border-${metric.color}/30 shadow-md hover:shadow-lg transition-shadow rounded-xl`}
           >
             <div className="card-body p-5">
               <div className="flex items-center gap-4">
@@ -1365,13 +2067,13 @@ const UserSegmentationManagement = () => {
       </div>
 
       {/* Segments List and Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ActiveSegmentsCard userSegments={userSegments} />
-        <SegmentPerformanceChart segmentPerformance={segmentPerformance} />
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+	<ActiveSegmentsCard segments={combinedSegments} />
+    <SegmentPerformanceChart segments={combinedSegments} />
       </div>
 
       {/* Segment Details */}
-      <SegmentDetailsTable segmentPerformance={segmentPerformance} />
+  <SegmentDetailsTable segments={combinedSegments} />
 
       {/* Create New Segment Modal */}
       <AnimatePresence>
@@ -1391,12 +2093,23 @@ const UserSegmentationManagement = () => {
   );
 };
 
-// Active Segments Card
-const ActiveSegmentsCard = ({ userSegments }) => {
+
+const ActiveSegmentsCard = ({
+  segments = [],
+}: {
+  segments?: UserSegment[];
+}) => {
   const [showAllActive, setShowAllActive] = useState(false);
+
+  const getMemberCount = (segment: any) =>
+    segment?.member_count ?? segment?.user_count ?? 0;
+
+  const activeSegments = segments.filter(
+    (segment) => getMemberCount(segment) > 0
+  );
   const visibleSegments = showAllActive
-    ? userSegments
-    : userSegments?.data?.slice(0, 3) || [];
+    ? activeSegments
+    : activeSegments.slice(0, 3);
 
   return (
     <div className="card bg-base-100 border border-base-300 shadow-lg rounded-xl">
@@ -1407,56 +2120,70 @@ const ActiveSegmentsCard = ({ userSegments }) => {
 
         <div className="space-y-3">
           <AnimatePresence>
-            {visibleSegments.map(
-              (
-                segment: {
-                  segment_id: React.Key | null | undefined;
-                  segment_name: string;
-                  description: string;
-                  user_count: number;
-                  created_at: string | number | Date;
-                },
-                index: number
-              ) => (
+            {visibleSegments.map((segment: any, index: number) => {
+              const displayName =
+                segment.segment_name ??
+                segment.name ??
+                segment.segment_id ??
+                "Unnamed Segment";
+
+              const memberCount = getMemberCount(segment);
+              const updatedAt =
+                segment?.last_updated ??
+                segment?.updated_at ??
+                segment?.created_at ??
+                null;
+              const timestampLabel = updatedAt
+                ? `Last updated: ${new Date(updatedAt).toLocaleDateString()}`
+                : "Last updated: N/A";
+
+              return (
                 <motion.div
-                  key={segment.segment_id}
+                  key={segment.segment_id ?? segment.id ?? index}
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ delay: index * 0.1 }}
                   className="p-4 border border-base-200 rounded-lg hover:bg-primary/5 transition-all"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
                       <div className="p-2 bg-primary/10 rounded-full">
                         <Users className="w-5 h-5 text-primary" />
                       </div>
                       <div>
                         <h4 className="font-semibold text-base-content">
-                          {segment.segment_name}
+                          {displayName}
                         </h4>
                         <p className="text-sm text-base-content/60">
-                          {segment.description}
+                          {segment.description || "No description provided"}
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="badge badge-primary badge-lg">
-                        {segment.user_count} users
+                        {memberCount.toLocaleString()} users
                       </div>
                       <p className="text-xs text-base-content/50 mt-2">
-                        Created:{" "}
-                        {new Date(segment.created_at).toLocaleDateString()}
+                        {timestampLabel}
                       </p>
                     </div>
                   </div>
                 </motion.div>
-              )
-            )}
+              );
+            })}
           </AnimatePresence>
+
+          {!visibleSegments.length && (
+            <div className="text-sm text-base-content/60 text-center py-6 border border-dashed border-base-200 rounded-lg">
+              {segments.length
+                ? "Toggle \"Show More\" to explore additional segments."
+                : "No segments found. Try creating a new segment to get started."}
+            </div>
+          )}
         </div>
 
-        {userSegments.data.length > 3 && (
+        {activeSegments.length > 3 && (
           <div className="mt-4 flex justify-center">
             <button
               onClick={() => setShowAllActive(!showAllActive)}
@@ -1470,7 +2197,7 @@ const ActiveSegmentsCard = ({ userSegments }) => {
               ) : (
                 <>
                   <ChevronDown className="w-4 h-4 mr-2" />
-                  Show {userSegments.data.length - 3} More
+                  Show {activeSegments.length - 3} More
                 </>
               )}
             </button>
@@ -1571,12 +2298,14 @@ const SegmentPerformanceChart = ({ segmentPerformance }) => {
 };
 
 // Segment Details Table
-const SegmentDetailsTable = ({ segmentPerformance }) => {
+const SegmentDetailsTable = ({ segments = [] }: { segments?: any[] }) => {
   const [showAllSegments, setShowAllSegments] = useState(false);
+  const getMemberCount = (segment: any) =>
+    segment?.member_count ?? segment?.user_count ?? 0;
   const activeSegments =
-    segmentPerformance?.filter((seg) => seg.user_count > 0) || [];
+    segments?.filter((seg) => getMemberCount(seg) > 0) || [];
   const inactiveSegments =
-    segmentPerformance?.filter((seg) => seg.user_count === 0) || [];
+    segments?.filter((seg) => getMemberCount(seg) === 0) || [];
 
   return (
     <div className="card bg-base-100 border border-base-300 shadow-lg rounded-xl">
@@ -1600,50 +2329,76 @@ const SegmentDetailsTable = ({ segmentPerformance }) => {
               {activeSegments.map(
                 (segment: any, index: React.Key | null | undefined) => (
                   <tr key={index} className="hover:bg-base-200/50">
-                    <td>
-                      <div className="flex items-center gap-3">
-                        <div className="avatar placeholder">
-                          <div className="bg-primary text-primary-content rounded-full w-8">
-                            <span className="text-xs">
-                              {segment.segment_name.charAt(0)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="font-semibold">
-                          {segment.segment_name}
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="badge badge-primary badge-lg">
-                        {segment.user_count}
-                      </div>
-                    </td>
-                    <td>${segment.avg_order_value.toFixed(2)}</td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="progress progress-primary w-16"
-                          style={{ "--value": segment.conversion_rate } as any}
-                        ></div>
-                        <span className="text-sm">
-                          {segment.conversion_rate.toFixed(1)}%
-                        </span>
-                      </div>
-                    </td>
-                    <td className="font-semibold text-success">
-                      ${segment.revenue_contribution.toLocaleString()}
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <button className="btn btn-ghost btn-sm text-primary">
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button className="btn btn-ghost btn-sm text-error">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+                    {(() => {
+                      const memberCount = getMemberCount(segment);
+                      const ordersCount = segment?.orders_count ?? 0;
+                      const avgOrderValue = Number(
+                        segment?.avg_order_value ?? 0
+                      );
+                      const revenuePerMember =
+                        segment?.revenue_per_member ??
+                        (memberCount
+                          ? (segment?.total_revenue ?? 0) / memberCount
+                          : 0);
+                      const totalRevenue =
+                        segment?.total_revenue ??
+                        segment?.revenue_contribution ??
+                        0;
+                      const conversionRate =
+                        segment?.conversion_rate ?? 0;
+                      return (
+                        <>
+                          <td>
+                            <div className="flex items-center gap-3">
+                              <div className="avatar placeholder">
+                                <div className="bg-primary text-primary-content rounded-full w-8">
+                                  <span className="text-xs">
+                                    {segment.segment_name?.charAt(0) ?? "?"}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="font-semibold">
+                                {segment.segment_name}
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <div className="badge badge-primary badge-lg">
+                              {memberCount.toLocaleString()}
+                            </div>
+                          </td>
+                          <td>${avgOrderValue}</td>
+                          
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="progress progress-primary w-16"
+                                style={{ "--value": conversionRate } as any}
+                              ></div>
+                              <span className="text-sm">
+                                {conversionRate.toFixed(1)}%
+                              </span>
+                            </div>
+                          </td>
+                          <td className="font-semibold text-success">
+                            ${totalRevenue.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </td>
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <button className="btn btn-ghost btn-sm text-primary">
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button className="btn btn-ghost btn-sm text-error">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </>
+                      );
+                    })()}
                   </tr>
                 )
               )}
@@ -1659,52 +2414,77 @@ const SegmentDetailsTable = ({ segmentPerformance }) => {
                         transition={{ duration: 0.3 }}
                         className="text-base-content/60"
                       >
-                        <td>
-                          <div className="flex items-center gap-3">
-                            <div className="avatar placeholder">
-                              <div className="bg-neutral text-neutral-content rounded-full w-8">
-                                <span className="text-xs">
-                                  {segment.segment_name.charAt(0)}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="font-semibold">
-                              {segment.segment_name}
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="badge badge-neutral badge-lg">
-                            {segment.user_count}
-                          </div>
-                        </td>
-                        <td>${segment.avg_order_value.toFixed(2)}</td>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="progress progress-neutral w-16"
-                              style={
-                                { "--value": segment.conversion_rate } as any
-                              }
-                            ></div>
-                            <span className="text-sm">
-                              {segment.conversion_rate.toFixed(1)}%
-                            </span>
-                          </div>
-                        </td>
-                        <td className="font-semibold">
-                          ${segment.revenue_contribution.toLocaleString()}
-                        </td>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <button className="btn btn-ghost btn-sm text-primary">
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button className="btn btn-ghost btn-sm text-error">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+                        {(() => {
+                          const memberCount = getMemberCount(segment);
+                          const ordersCount = segment?.orders_count ?? 0;
+                          const avgOrderValue = Number(
+                            segment?.avg_order_value ?? 0
+                          );
+                          const revenuePerMember =
+                            segment?.revenue_per_member ??
+                            (memberCount
+                              ? (segment?.total_revenue ?? 0) / memberCount
+                              : 0);
+                          const totalRevenue =
+                            segment?.total_revenue ??
+                            segment?.revenue_contribution ??
+                            0;
+                          const conversionRate =
+                            segment?.conversion_rate ?? 0;
+                          return (
+                            <>
+                              <td>
+                                <div className="flex items-center gap-3">
+                                  <div className="avatar placeholder">
+                                    <div className="bg-neutral text-neutral-content rounded-full w-8">
+                                      <span className="text-xs">
+                                        {segment.segment_name?.charAt(0) ?? "?"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="font-semibold">
+                                    {segment.segment_name}
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <div className="badge badge-neutral badge-lg">
+                                  {memberCount.toLocaleString()}
+                                </div>
+                              </td>
+                              <td>{ordersCount.toLocaleString()}</td>
+                              <td>${avgOrderValue.toFixed(2)}</td>
+                              <td>${revenuePerMember.toFixed(2)}</td>
+                              <td className="font-semibold">
+                                ${totalRevenue.toLocaleString(undefined, {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td>
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className="progress progress-neutral w-16"
+                                    style={{ "--value": conversionRate } as any}
+                                  ></div>
+                                  <span className="text-sm">
+                                    {conversionRate.toFixed(1)}%
+                                  </span>
+                                </div>
+                              </td>
+                              <td>
+                                <div className="flex items-center gap-2">
+                                  <button className="btn btn-ghost btn-sm text-primary">
+                                    <Edit className="w-4 h-4" />
+                                  </button>
+                                  <button className="btn btn-ghost btn-sm text-error">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </>
+                          );
+                        })()}
                       </motion.tr>
                     )
                   )}

@@ -35,7 +35,7 @@ export const UserSegmentation: React.FC = () => {
   );
   const [editingSegment, setEditingSegment] = useState<any>(null);
 
-  const { data: segments, isLoading: segmentsLoading } =
+  const { data: segments = [], isLoading: segmentsLoading } =
     useGetUserSegmentsQuery({});
 
   const [createSegment, { isLoading: isCreating }] =
@@ -107,7 +107,7 @@ export const UserSegmentation: React.FC = () => {
   const segmentStats = [
     {
       title: "Total Segments",
-      value: segments?.length?.toString() || "0",
+      value: segments.length ? segments.length.toString() : "0",
       icon: <Target className="w-6 h-6" />,
       color: "text-primary",
     },
@@ -120,7 +120,8 @@ export const UserSegmentation: React.FC = () => {
       key: "user_count",
       title: "Users",
       width: "15%",
-      render: (value: number) => value?.toLocaleString(),
+      render: (_value: number, record: any) =>
+        (record?.user_count ?? record?.member_count ?? 0).toLocaleString(),
     },
     {
       key: "last_updated",

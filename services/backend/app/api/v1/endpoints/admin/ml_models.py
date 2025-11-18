@@ -5,8 +5,8 @@ This module provides admin-only endpoints for managing ML models, versions,
 configurations, and monitoring model performance.
 """
 import logging
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, timedelta
+from typing import List, Optional, Set
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -993,6 +993,7 @@ async def train_ml_models(
 
         rec_service = RecommendationEngineService(db)
         training_results = []
+        updated_configs: Set[UUID] = set()
 
         if request.retrain_all:
             # Train all model types
@@ -1005,6 +1006,15 @@ async def train_ml_models(
                         "training_id": result["training_id"],
                         "status": "started"
                     })
+
+                    configs = db.query(MLModelConfig).filter(
+                        MLModelConfig.model_type == model_type
+                    ).all()
+
+                    for config in configs:
+                        config.last_trained = datetime.utcnow()
+                        config.updated_at = datetime.utcnow()
+                        updated_configs.add(config.id)
         elif request.specific_models:
             # Train specific models
             for model_name in request.specific_models:
@@ -1023,7 +1033,13 @@ async def train_ml_models(
                             "status": "started"
                         })
 
-        from datetime import timedelta
+                        config.last_trained = datetime.utcnow()
+                        config.updated_at = datetime.utcnow()
+                        updated_configs.add(config.id)
+
+        if updated_configs:
+            db.commit()
+
         estimated_completion = datetime.utcnow() + timedelta(minutes=30)
 
         return {
