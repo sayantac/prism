@@ -1,0 +1,9 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+
+# Disallow admin routes from being crawled
+Disallow: /admin
+
+# Sitemap location (update when you have one)
+# Sitemap: https://yourdomain.com/sitemap.xml

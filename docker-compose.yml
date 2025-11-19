@@ -1,0 +1,110 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: ecommerce-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ecommerce_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecommerce_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./data/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Note: Schema is created by SQLAlchemy on backend startup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ecommerce_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecommerce-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./services/backend
+      dockerfile: Dockerfile
+    container_name: ecommerce-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ecommerce_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecommerce_pass}
+      POSTGRES_SERVER: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ecommerce_user}:${POSTGRES_PASSWORD:-ecommerce_pass}@postgres:5432/${POSTGRES_DB:-ecommerce}
+      SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production}
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      DEBUG: ${DEBUG:-True}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      HUGGINGFACE_API_TOKEN: ${HUFFINGFACE_API_TOKEN:-}
+ 
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./services/backend:/app
+      - backend_static:/app/static
+      - backend_logs:/app/logs
+      - ml_models:/app/ml_models
+    networks:
+      - ecommerce-network
+
+  # React Frontend
+  frontend:
+    platform: linux/amd64
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    container_name: ecommerce-frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_APP_NAME: ${VITE_APP_NAME:-E-Commerce Platform}
+      VITE_APP_VERSION: ${VITE_APP_VERSION:-1.0.0}
+      VITE_ENABLE_ANALYTICS: ${VITE_ENABLE_ANALYTICS:-true}
+      VITE_ENABLE_ML_RECOMMENDATIONS: ${VITE_ENABLE_ML_RECOMMENDATIONS:-true}
+      VITE_ENV: ${VITE_ENV:-development}
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./services/frontend:/app
+      - /app/node_modules
+    networks:
+      - ecommerce-network
+
+  # PgAdmin (Optional - use with --profile tools)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ecommerce-pgadmin
+    profiles:
+      - tools
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - ecommerce-network
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  backend_static:
+  backend_logs:
+  ml_models:
+  pgadmin_data:
+
+networks:
+  ecommerce-network:
+    driver: bridge
