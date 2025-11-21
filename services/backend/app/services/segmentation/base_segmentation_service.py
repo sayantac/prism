@@ -35,5 +35,5 @@ class BaseSegmentationService:
             "created_at": segment.created_at.isoformat() if segment.created_at else None,
             "updated_at": segment.updated_at.isoformat() if segment.updated_at else None,
             "last_updated": segment.last_updated.isoformat() if segment.last_updated else None,
-            "created_by": str(segment.created_by) if segment.created_by else None,
+            # "created_by": str(segment.created_by) if segment.created_by else None,
         }

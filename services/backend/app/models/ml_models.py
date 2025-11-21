@@ -7,6 +7,7 @@ This module contains models for:
 - User segmentation
 - Recommendation tracking
 """
+from datetime import datetime
 import uuid
 
 from sqlalchemy import (
@@ -202,7 +203,11 @@ class UserSegment(Base):
     last_updated = Column(DateTime(timezone=False))
     created_at = Column(DateTime(timezone=False), server_default=func.now())
     updated_at = Column(DateTime(timezone=False), server_default=func.now(), onupdate=func.now())
+    
 
+
+    # created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    # created_at = Column(DateTime, default=datetime.utcnow)
     # Relationships
     memberships = relationship("UserSegmentMembership", back_populates="segment")
 

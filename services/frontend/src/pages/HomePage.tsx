@@ -13,6 +13,7 @@ import {
   useGetRecommendationsQuery,
   useGetTrendingProductsQuery,
   useGetUserBannersQuery,
+  useGetPublishedBannersQuery,
 } from "../store/api/recommendationApi";
 
 export const HomePage: React.FC = () => {
@@ -25,10 +26,16 @@ export const HomePage: React.FC = () => {
     useGetRecommendationsQuery(user?.id ?? "", {
       skip: !isAuthenticated || !user?.id,
     });
-  const { data: banners } = useGetUserBannersQuery(user?.id ?? "", {
+  const { data: userBanners } = useGetUserBannersQuery(user?.id ?? "", {
     skip: !isAuthenticated || !user?.id || isLoading,
   });
+  const { data: publishedBanners } = useGetPublishedBannersQuery({ limit: 5 });
   const { data: categories } = useGetCategoriesQuery();
+
+  const heroBanners =
+    userBanners && userBanners.banners?.length
+      ? userBanners.banners
+      : publishedBanners?.banners || [];
 
   const features = [
     {
@@ -64,69 +71,75 @@ export const HomePage: React.FC = () => {
   return (
     <div className="min-h-screen bg-base-100">
       {/* Hero Section */}
-      <section className="hero min-h-[80vh] bg-gradient-to-br from-primary via-primary/90 to-secondary relative overflow-hidden">
-        {banners && banners.banners?.length > 0 ? (
-          <BannerDisplay
-            banners={banners.banners}
-            className="rounded-2xl shadow-2xl"
-            autoSlide={true}
-            slideInterval={6000}
-          />
-        ) : (
-          <>
+      <section className="hero min-h-[80vh] bg-linear-to-br from-primary via-primary/90 to-secondary relative overflow-hidden">
+        <div className="absolute inset-0">
+          {heroBanners.length > 0 ? (
+            <div className="relative h-full w-full">
+              <BannerDisplay
+                banners={heroBanners}
+                className="h-full w-full"
+                autoSlide={true}
+                slideInterval={6000}
+              />
+              <div className="absolute inset-0 bg-linear-to-br from-black/40 via-black/10 to-black/50" />
+            </div>
+          ) : (
             <div className="absolute inset-0 opacity-10">
               <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48Y2lyY2xlIGN4PSIzMCIgY3k9IjMwIiByPSI0Ii8+PC9nPjwvZz48L3N2Zz4=')] repeat"></div>
             </div>
+          )}
+        </div>
 
+        {
+          heroBanners.length === 0 && (
             <div className="hero-content text-center text-primary-content relative z-10">
-              <div className="max-w-4xl">
-                <motion.h1
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-5xl md:text-6xl font-bold mb-6"
+          <div className="max-w-4xl">
+            <motion.h1
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-5xl md:text-6xl font-bold mb-6"
+            >
+              Discover Amazing Products
+            </motion.h1>
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="text-xl md:text-2xl mb-8 text-primary-content/90"
+            >
+              Shop the latest trends with fast delivery and secure payments
+            </motion.p>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="flex flex-col sm:flex-row gap-4 justify-center"
+            >
+              <Link to="/products">
+                <Button
+                  size="lg"
+                  variant="accent"
+                  className="text-accent-content shadow-lg hover:shadow-xl"
                 >
-                  Discover Amazing Products
-                </motion.h1>
-                <motion.p
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="text-xl md:text-2xl mb-8 text-primary-content/90"
-                >
-                  Shop the latest trends with fast delivery and secure payments
-                </motion.p>
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="flex flex-col sm:flex-row gap-4 justify-center"
-                >
-                  <Link to="/products">
-                    <Button
-                      size="lg"
-                      variant="accent"
-                      className="text-accent-content shadow-lg hover:shadow-xl"
-                    >
-                      Shop Now
-                      <ArrowRight className="ml-2 w-5 h-5" />
-                    </Button>
-                  </Link>
-                  {!isAuthenticated && (
-                    <Link to="/register">
-                      <Button
-                        size="lg"
-                        variant="outline"
-                        className="border-primary-content text-primary-content hover:bg-primary-content hover:text-primary"
-                      >
-                        Sign Up Free
-                      </Button>
-                    </Link>
-                  )}
-                </motion.div>
-              </div>
-            </div>
-          </>
-        )}
+                  Shop Now
+                  <ArrowRight className="ml-2 w-5 h-5" />
+                </Button>
+              </Link>
+              {!isAuthenticated && (
+                <Link to="/register">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="border-primary-content text-primary-content hover:bg-primary-content hover:text-primary"
+                  >
+                    Sign Up Free
+                  </Button>
+                </Link>
+              )}
+            </motion.div>
+          </div>
+        </div>)
+        }
       </section>
 
       {categories && categories.length > 0 && (
@@ -149,7 +162,7 @@ export const HomePage: React.FC = () => {
                   className="group text-center"
                 >
                   <div className="bg-base-200 rounded-xl p-4 h-36 flex flex-col items-center justify-center group-hover:bg-primary/10 transition-colors duration-300">
-                    <div className="w-12 h-12 bg-primary/20 rounded-lg flex items-center justify-center group-hover:bg-primary/30 transition-colors mb-3 flex-shrink-0">
+                    <div className="w-12 h-12 bg-primary/20 rounded-lg flex items-center justify-center group-hover:bg-primary/30 transition-colors mb-3 shrink-0">
                       <span className="text-2xl">{category.icon || "📦"}</span>
                     </div>
                     <h3 className="font-medium text-xs leading-tight text-base-content group-hover:text-primary transition-colors text-center w-full px-1">

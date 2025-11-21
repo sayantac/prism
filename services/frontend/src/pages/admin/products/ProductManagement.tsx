@@ -6,9 +6,11 @@ import {
   Eye,
   FileText,
   ImagePlus,
+  Languages,
   Package,
   Plus,
   Save,
+  Share2,
   Sparkles,
   Tag,
   Trash2,
@@ -30,7 +32,9 @@ import { Button } from "../../../components/ui/Button";
 import { Input } from "../../../components/ui/Input";
 import { Loading } from "../../../components/ui/Loading";
 import { Tabs } from "../../../components/ui/Tabs";
+import { resolveProductImage } from "@/utils/media";
 import toast from "react-hot-toast";
+import { useSearchProductsQuery } from "@/store/api/productApi";
 import {
   useCreateProductMutation,
   useGenerateProductContentMutation,
@@ -44,27 +48,115 @@ interface AddProductModalProps {
   onClose: () => void;
 }
 
+const SUPPORTED_LANGUAGES = [
+  { label: "English", value: "English" },
+  { label: "Spanish", value: "Spanish" },
+  { label: "French", value: "French" },
+  { label: "German", value: "German" },
+  { label: "Chinese", value: "Chinese" },
+];
+
+type ContentDraftState = {
+  description: string;
+  title: string;
+  seoTitle: string;
+  seoMeta: string;
+  seoKeywords: string;
+  descriptionBullets: string[];
+};
+
+type TranslationBundle = ContentDraftState & {
+  language: string;
+  translatedAt: string;
+};
+
+const createInitialContentDraft = (): ContentDraftState => ({
+  description: "",
+  title: "",
+  seoTitle: "",
+  seoMeta: "",
+  seoKeywords: "",
+  descriptionBullets: [],
+});
+
+const hasPrimaryContent = (draft: ContentDraftState): boolean =>
+  draft.description.trim().length > 0 || draft.title.trim().length > 0;
+
+const SUPPORTED_LANGUAGE_VALUES = new Set(
+  SUPPORTED_LANGUAGES.map((language) => language.value)
+);
+
+const extractDraftText = (draft: ContentDraftState): string => {
+  const segments = [
+    draft.title,
+    draft.description,
+    draft.seoTitle,
+    draft.seoMeta,
+    draft.seoKeywords,
+    draft.descriptionBullets.join(" "),
+  ];
+
+  return segments
+    .map((segment) => (typeof segment === "string" ? segment.trim() : ""))
+    .filter(Boolean)
+    .join(" ");
+};
+
+const detectDraftLanguage = (draft: ContentDraftState): string | null => {
+  const text = extractDraftText(draft);
+
+  if (!text || text.trim().length < 5) {
+    return null;
+  }
+
+  if (/\p{Script=Han}/u.test(text)) {
+    return "Chinese";
+  }
+
+  if (/[äöüßÄÖÜ]/.test(text)) {
+    return "German";
+  }
+
+  if (/[âêîôûàçéèùëïüœÂÊÎÔÛÀÇÉÈÙËÏÜŒ]/.test(text)) {
+    return "French";
+  }
+
+  if (/[áéíóúñ¡¿ÁÉÍÓÚÑ]/.test(text)) {
+    return "Spanish";
+  }
+
+  if (SUPPORTED_LANGUAGE_VALUES.has("English")) {
+    return "English";
+  }
+
+  return null;
+};
+
 const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) => {
   const [productForm, setProductForm] = useState({
     name: "",
     brand: "",
     sku: "",
     category: "",
-    language: "English",
+    language: "",
     price: "",
     compareAtPrice: "",
     stock: "",
     context: "",
   });
 
-  const [contentDraft, setContentDraft] = useState({
-    description: "",
-    title: "",
-    seoTitle: "",
-    seoMeta: "",
-    seoKeywords: "",
-    descriptionBullets: [] as string[],
+  const [contentDraft, setContentDraft] = useState<ContentDraftState>(() =>
+    createInitialContentDraft()
+  );
+  const contentSnapshots = useRef<Record<string, ContentDraftState>>({
+    English: createInitialContentDraft(),
   });
+  const lastActiveLanguageRef = useRef<string>("English");
+  const [translations, setTranslations] = useState<Record<string, TranslationBundle>>({});
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translationError, setTranslationError] = useState<string | null>(null);
+  const [isLanguagePickerOpen, setIsLanguagePickerOpen] = useState(false);
+  const [languagePickerValue, setLanguagePickerValue] = useState<string>("English");
 
   const [activeTab, setActiveTab] = useState("description");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -110,6 +202,21 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
     }
   }, [selectedFiles, activeImageIndex]);
 
+  useEffect(() => {
+    const draftSnapshot = captureContentDraft();
+    const detectedLanguage = detectDraftLanguage(draftSnapshot);
+
+    const snapshotKey = detectedLanguage && SUPPORTED_LANGUAGE_VALUES.has(detectedLanguage)
+      ? detectedLanguage
+      : productForm.language || lastActiveLanguageRef.current || "English";
+
+    contentSnapshots.current[snapshotKey] = draftSnapshot;
+
+    if (detectedLanguage) {
+      lastActiveLanguageRef.current = detectedLanguage;
+    }
+  }, [productForm.language, contentDraft.description, contentDraft.title, contentDraft.seoTitle, contentDraft.seoMeta, contentDraft.seoKeywords, contentDraft.descriptionBullets]);
+
   if (!isOpen) {
     return null;
   }
@@ -147,6 +254,9 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
     field: keyof typeof productForm,
     value: string
   ) => {
+    if (field !== "language") {
+      setTranslationError(null);
+    }
     setProductForm((previous) => ({
       ...previous,
       [field]: value,
@@ -161,6 +271,267 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
       ...previous,
       [field]: value,
     }));
+  };
+
+  const handleTranslateButtonClick = () => {
+    let fallbackLanguage =
+      productForm.language || lastActiveLanguageRef.current || "English";
+
+    if (!SUPPORTED_LANGUAGE_VALUES.has(fallbackLanguage)) {
+      fallbackLanguage = "English";
+    }
+
+    setLanguagePickerValue(fallbackLanguage);
+    setIsLanguagePickerOpen(true);
+    setTranslationError(null);
+  };
+
+  const handleLanguagePickerCancel = () => {
+    setIsLanguagePickerOpen(false);
+  };
+
+  const handleLanguagePickerConfirm = () => {
+    const targetLanguage = languagePickerValue || "English";
+    setIsLanguagePickerOpen(false);
+    performTranslation(targetLanguage);
+  };
+
+  function captureContentDraft(): ContentDraftState {
+    return {
+      description: contentDraft.description,
+      title: contentDraft.title,
+      seoTitle: contentDraft.seoTitle,
+      seoMeta: contentDraft.seoMeta,
+      seoKeywords: contentDraft.seoKeywords,
+      descriptionBullets: [...contentDraft.descriptionBullets],
+    };
+  }
+
+  const applyContentSnapshot = (snapshot: ContentDraftState) => {
+    setContentDraft({
+      description: snapshot.description,
+      title: snapshot.title,
+      seoTitle: snapshot.seoTitle,
+      seoMeta: snapshot.seoMeta,
+      seoKeywords: snapshot.seoKeywords,
+      descriptionBullets: [...snapshot.descriptionBullets],
+    });
+  };
+
+  const mergeContentWithFallback = (
+    incoming: Partial<ContentDraftState>,
+    fallback: ContentDraftState
+  ): ContentDraftState => ({
+    description:
+      typeof incoming.description === "string" && incoming.description.trim()
+        ? incoming.description
+        : fallback.description,
+    descriptionBullets:
+      Array.isArray(incoming.descriptionBullets) && incoming.descriptionBullets.length
+        ? incoming.descriptionBullets
+            .map((bullet) => String(bullet).trim())
+            .filter(Boolean)
+        : [...fallback.descriptionBullets],
+    title:
+      typeof incoming.title === "string" && incoming.title.trim()
+        ? incoming.title
+        : fallback.title,
+    seoTitle:
+      typeof incoming.seoTitle === "string" && incoming.seoTitle.trim()
+        ? incoming.seoTitle
+        : fallback.seoTitle,
+    seoMeta:
+      typeof incoming.seoMeta === "string" && incoming.seoMeta.trim()
+        ? incoming.seoMeta
+        : fallback.seoMeta,
+    seoKeywords:
+      typeof incoming.seoKeywords === "string" && incoming.seoKeywords.trim()
+        ? incoming.seoKeywords
+        : fallback.seoKeywords,
+  });
+
+  const buildTranslationContext = (
+    sourceLanguage: string,
+    targetLanguage: string,
+    baseContent: ContentDraftState
+  ) => {
+    const bulletText = baseContent.descriptionBullets.length
+      ? baseContent.descriptionBullets
+          .map((bullet, index) => `${index + 1}. ${bullet}`)
+          .join(" | ")
+      : "None provided.";
+
+    const seoKeywordsList = baseContent.seoKeywords
+      ? baseContent.seoKeywords
+          .split(",")
+          .map((keyword) => keyword.trim())
+          .filter(Boolean)
+          .join(", ")
+      : "None provided.";
+
+    const sections: string[] = [
+      `Translate the following ecommerce product copy from ${sourceLanguage} to ${targetLanguage}.`,
+      "Preserve factual accuracy, tone, and SEO intent while adapting idioms culturally.",
+      "Return JSON with keys description, bullets (array of three), title, seoTitle, seoMeta, seoKeywords (array).",
+      "Do not add new features or marketing claims that are not present in the source.",
+      "",
+  `Original ${sourceLanguage} copy:`,
+      `Title: ${baseContent.title || "(none)"}`,
+      `Description: ${baseContent.description || "(none)"}`,
+      `Feature bullets: ${bulletText}`,
+      `SEO Title: ${baseContent.seoTitle || "(none)"}`,
+      `SEO Meta: ${baseContent.seoMeta || "(none)"}`,
+      `SEO Keywords: ${seoKeywordsList || "(none)"}`,
+    ];
+
+    if (productForm.context.trim()) {
+      sections.push(`Merchant notes: ${productForm.context.trim()}`);
+    }
+
+    return sections.join("\n");
+  };
+
+  const performTranslation = async (targetLanguage: string) => {
+    const normalizedTarget = targetLanguage?.trim();
+
+    if (!normalizedTarget) {
+      const message = "Select a target language before translating.";
+      setTranslationError(message);
+      toast.error(message);
+      return;
+    }
+
+    const draftSnapshot = captureContentDraft();
+
+    if (!hasPrimaryContent(draftSnapshot)) {
+      const message = "Add source copy before requesting a translation.";
+      setTranslationError(message);
+      toast.error(message);
+      return;
+    }
+
+    const detectedLanguage = detectDraftLanguage(draftSnapshot);
+    const sourceLanguage =
+      (detectedLanguage && SUPPORTED_LANGUAGE_VALUES.has(detectedLanguage)
+        ? detectedLanguage
+        : lastActiveLanguageRef.current || "English") || "English";
+
+    if (sourceLanguage === normalizedTarget) {
+      const message = `Content already appears to be in ${normalizedTarget}. Choose another target language to translate.`;
+      setTranslationError(message);
+      toast.error(message);
+      return;
+    }
+
+    contentSnapshots.current[sourceLanguage] = draftSnapshot;
+    lastActiveLanguageRef.current = sourceLanguage;
+
+    setProductForm((previous) => ({
+      ...previous,
+      language: normalizedTarget,
+    }));
+
+    setIsTranslating(true);
+    setTranslationError(null);
+
+    try {
+      const translationContext = buildTranslationContext(
+        sourceLanguage,
+        normalizedTarget,
+        draftSnapshot
+      );
+      const response = await generateProductContent({
+        mode: "all",
+        productName: productForm.name || draftSnapshot.title || "Product",
+        brand: productForm.brand,
+        sku: productForm.sku,
+        category: productForm.category,
+        context: translationContext,
+        language: normalizedTarget,
+        files: [],
+      }).unwrap();
+
+      if (response.status !== "ok") {
+        throw new Error(response.message || "Translation failed. Please try again.");
+      }
+
+      const rawAnswer =
+        typeof (response as any)?.rawAnswer === "string"
+          ? (response as any).rawAnswer.trim()
+          : "";
+
+      const content =
+        (response?.content && typeof response.content === "object"
+          ? response.content
+          : {}) ?? {};
+
+      const parsed = rawAnswer ? extractJsonFromString(rawAnswer) : null;
+
+      const resolvedContent = {
+        ...(typeof content === "object" && content !== null ? content : {}),
+        ...(parsed && typeof parsed === "object" ? parsed : {}),
+      } as Record<string, any>;
+
+      const translatedBullets = Array.isArray((resolvedContent as any).bullets)
+        ? (resolvedContent as any).bullets
+            .map((bullet: any) => String(bullet).trim())
+            .filter(Boolean)
+        : [];
+
+      const keywordList = Array.isArray((resolvedContent as any).seoKeywords)
+        ? (resolvedContent as any).seoKeywords
+            .map((keyword: any) => String(keyword).trim())
+            .filter(Boolean)
+        : typeof (resolvedContent as any).seoKeywords === "string"
+          ? (resolvedContent as any).seoKeywords
+              .split(",")
+              .map((keyword: string) => keyword.trim())
+              .filter(Boolean)
+          : [];
+
+      const translationPayload: TranslationBundle = {
+        language: normalizedTarget,
+        translatedAt: new Date().toISOString(),
+        description:
+          typeof (resolvedContent as any).description === "string"
+            ? (resolvedContent as any).description
+            : "",
+        descriptionBullets: translatedBullets,
+        title:
+          typeof (resolvedContent as any).title === "string"
+            ? (resolvedContent as any).title
+            : "",
+        seoTitle:
+          typeof (resolvedContent as any).seoTitle === "string"
+            ? (resolvedContent as any).seoTitle
+            : "",
+        seoMeta:
+          typeof (resolvedContent as any).seoMeta === "string"
+            ? (resolvedContent as any).seoMeta
+            : "",
+        seoKeywords: keywordList.join(", "),
+      };
+
+      setTranslations((previous) => ({
+        ...previous,
+        [normalizedTarget]: translationPayload,
+      }));
+
+      const merged = mergeContentWithFallback(translationPayload, draftSnapshot);
+      contentSnapshots.current[normalizedTarget] = merged;
+      lastActiveLanguageRef.current = normalizedTarget;
+      applyContentSnapshot(merged);
+      toast.success(`Translated copy to ${normalizedTarget}.`);
+    } catch (error: any) {
+      const message =
+        error?.data?.message ||
+        error?.message ||
+        "Unable to translate content right now. Please try again.";
+      setTranslationError(message);
+      toast.error(message);
+    } finally {
+      setIsTranslating(false);
+    }
   };
   function extractJsonFromString(input: string): any | null {
     const jsonRegex = /{[\s\S]*?}/g;
@@ -183,18 +554,17 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
     }
 
     setGenerationError(null);
+    setTranslationError(null);
 
     try {
       const response = await generateProductContent({
         mode: "all",
-        product: {
-          name: productForm.name,
-          brand: productForm.brand,
-          sku: productForm.sku,
-          category: productForm.category,
-          context: productForm.context,
-          language: productForm.language,
-        },
+        productName: productForm.name,
+        brand: productForm.brand,
+        sku: productForm.sku,
+        category: productForm.category,
+        context: productForm.context,
+        language: productForm.language,
         files: selectedFiles,
       }).unwrap();
 
@@ -204,7 +574,9 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
       }
 
       const rawAnswer =
-        typeof response?.rawAnswer === "string" ? response.rawAnswer.trim() : "";
+        typeof (response as any)?.rawAnswer === "string"
+          ? (response as any).rawAnswer.trim()
+          : "";
       const content =
         (response?.content && typeof response.content === "object"
           ? response.content
@@ -267,6 +639,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
             ? seoKeywordsArray.map((keyword) => keyword.trim()).filter(Boolean).join(", ")
             : previous.seoKeywords,
       }));
+      setTranslations({});
     } catch (error: any) {
       const fallbackMessage =
         error?.data?.message ||
@@ -330,7 +703,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
             return result.url;
           }),
         );
-        uploadedImageUrls = uploads;
+        uploadedImageUrls = uploads.filter((url): url is string => typeof url === "string" && url.length > 0);
       }
 
       const keywordTags = contentDraft.seoKeywords
@@ -404,20 +777,20 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
         brand: "",
         sku: "",
         category: "",
-        language: "English",
+        language: "",
         price: "",
         compareAtPrice: "",
         stock: "",
         context: "",
       });
-      setContentDraft({
-        description: "",
-        title: "",
-        seoTitle: "",
-        seoMeta: "",
-        seoKeywords: "",
-        descriptionBullets: [],
-      });
+  const resetContent = createInitialContentDraft();
+  setContentDraft(resetContent);
+  contentSnapshots.current = {
+    English: createInitialContentDraft(),
+  };
+  lastActiveLanguageRef.current = "English";
+      setTranslations({});
+      setTranslationError(null);
       setSelectedFiles([]);
       setActiveImageIndex(0);
       onClose();
@@ -459,6 +832,10 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
     { id: "seo", label: "SEO", icon: <Tag className="w-4 h-4" /> },
   ];
 
+  const targetLanguage = productForm.language;
+  const canTranslate = true;
+  const activeTranslation = targetLanguage ? translations[targetLanguage] : undefined;
+
   return (
     <div
       className="fixed inset-0 z-50 flex min-h-full items-start justify-center overflow-y-auto bg-black/50 backdrop-blur px-4 py-6 sm:items-center sm:px-6 sm:py-10"
@@ -472,7 +849,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-base-200 px-6 py-5 mb-2">
             <div className="space-y-1">
               <h2 className="text-xl font-semibold text-base-content">
-                Product Content Builder
+                Product content builder
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -512,7 +889,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <h3 className="text-base font-semibold text-base-content">
-                        Item Details
+                        Item details
                       </h3>
                       <p className="text-sm text-base-content/70">
                         Provide the essentials that anchor the generated content.
@@ -522,7 +899,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
 
                   <div className="mt-4 space-y-4">
                     <Input
-                      label="Product Name"
+                      label="Product name"
                       placeholder="Wireless noise-cancelling headphones"
                       value={productForm.name}
                       onChange={(event) =>
@@ -590,7 +967,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
                     </div>
 
                     <Input
-                      label="Stock Quantity"
+                      label="Stock quantity"
                       type="number"
                       min="0"
                       placeholder="50"
@@ -603,7 +980,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
                     <div>
                       <label className="label">
                         <span className="label-text text-base-content font-medium">
-                          Product Narrative
+                          Product narrative
                         </span>
                       </label>
                       <textarea
@@ -738,30 +1115,52 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
             </div>
 
             <div className="rounded-2xl border border-base-200 bg-base-100 p-5 shadow-sm">
-              <div className="flex items-center gap-6">
-                <div className="w-[340px]">
-                  <Tabs
-                    tabs={contentTabs}
-                    activeTab={activeTab}
-                    onTabChange={setActiveTab}
-                    variant="lifted"
-                  />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Tabs
+                  tabs={contentTabs}
+                  activeTab={activeTab}
+                  onTabChange={setActiveTab}
+                  variant="lifted"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  {canTranslate && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      icon={<Languages className="w-4 h-4" />}
+                      onClick={handleTranslateButtonClick}
+                      loading={isTranslating}
+                      disabled={isTranslating}
+                    >
+                      Translate
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    icon={<Sparkles className="w-4 h-4" />}
+                    onClick={handleGenerateAllContent}
+                    loading={isGenerating}
+                    disabled={isGenerating}
+                  >
+                    Generate
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  icon={<Sparkles className="w-4 h-4" />}
-                  onClick={handleGenerateAllContent}
-                  loading={isGenerating}
-                  disabled={isGenerating}
-                >
-                  Generate
-                </Button>
               </div>
 
               {generationError && (
                 <p className="mt-2 text-sm text-error">{generationError}</p>
+              )}
+              {translationError && (
+                <p className="mt-2 text-sm text-error">{translationError}</p>
+              )}
+              {canTranslate && activeTranslation && (
+                <p className="mt-2 text-xs text-base-content/60">
+                  Last translated to {activeTranslation.language} on {" "}
+                  {new Date(activeTranslation.translatedAt).toLocaleString()}
+                </p>
               )}
 
               <div className="mt-4 space-y-4">
@@ -794,7 +1193,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
                   <div className="space-y-4">
                     <div className="grid gap-4 md:grid-cols-2">
                       <Input
-                        label="Title Tag"
+                        label="Title tag"
                         placeholder="UltraClear Pro ANC Headphones | 35hr Battery"
                         value={contentDraft.seoTitle}
                         onChange={(event) =>
@@ -814,7 +1213,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
                     <div>
                       <label className="label">
                         <span className="label-text text-base-content font-medium">
-                          Meta Description
+                          Meta description
                         </span>
                       </label>
                       <textarea
@@ -849,28 +1248,134 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose }) =>
               loading={isSubmitting || isCreating}
               disabled={isSubmitting || isCreating}
             >
-              Save Product
+              Save product
             </Button>
           </div>
         </form>
       </div>
+
+      {isLanguagePickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={(event) => {
+            event.stopPropagation();
+            handleLanguagePickerCancel();
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-base-100 p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-base-content">
+              Choose target language
+            </h3>
+            <p className="mt-1 text-sm text-base-content/70">
+              Select the language you’d like to translate this product content into.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              {SUPPORTED_LANGUAGES.map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex items-center justify-between rounded-xl border px-4 py-3 transition ${
+                    languagePickerValue === option.value
+                      ? "border-primary bg-primary/10"
+                      : "border-base-300 hover:border-primary/50"
+                  }`}
+                >
+                  <span className="text-base font-medium text-base-content">
+                    {option.label}
+                  </span>
+                  <input
+                    type="radio"
+                    name="translation-language"
+                    value={option.value}
+                    checked={languagePickerValue === option.value}
+                    onChange={() => setLanguagePickerValue(option.value)}
+                    className="radio radio-primary"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={handleLanguagePickerCancel}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleLanguagePickerConfirm}
+                icon={<Languages className="w-4 h-4" />}
+              >
+                Translate
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
+// import { useEffect, useState } from "react";
+
 export const AdminProducts: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  const { data: productsData, isLoading } = useGetAdminProductsQuery({
-    page: currentPage,
-    page_size: 20,
-    search_term: searchQuery || undefined,
-    category: categoryFilter || undefined,
-  });
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1); // Reset to page 1 when search changes
+    }, 500); // 500ms delay
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const isSearchActive = debouncedSearch.trim().length > 0;
+
+  const {
+    data: productsData,
+    isLoading: isAdminLoading,
+    isFetching: isAdminFetching,
+  } = useGetAdminProductsQuery(
+    {
+      page: currentPage,
+      page_size: 20,
+      search: debouncedSearch || undefined,
+      category: categoryFilter || undefined,
+    },
+    {
+      skip: isSearchActive,
+    }
+  );
+
+  const {
+    data: searchResults,
+    isLoading: isSearchLoading,
+    isFetching: isSearchFetching,
+  } = useSearchProductsQuery(
+    {
+      q: debouncedSearch,
+      page: currentPage,
+      size: 20,
+      sort_by: "relevance",
+      sort_order: "desc",
+      use_vector_search: true,
+      category: categoryFilter || undefined,
+    },
+    {
+      skip: !isSearchActive,
+    }
+  );
+
   const { data: adminCategories } = useGetProductCategoriesQuery();
+  
   const categoryFilterOptions =
     adminCategories
       ?.filter((category) => category?.is_active !== false)
@@ -878,10 +1383,22 @@ export const AdminProducts: React.FC = () => {
         label: category.name,
         value: category.id,
       })) ?? [];
-  const products = productsData?.items || [];
-  const totalPages = productsData?.pages || 1;
+      
+  const activeProductsData = isSearchActive ? searchResults : productsData;
+  const products = activeProductsData?.items || [];
+  const totalPages = activeProductsData?.pages || 1;
+  const isFetchingProducts = isSearchActive ? isSearchFetching : isAdminFetching;
+  const isInitialLoading = isSearchActive
+    ? isSearchLoading && !searchResults
+    : isAdminLoading && !productsData;
 
-  if (isLoading) {
+  // Reset to page 1 when category filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [categoryFilter]);
+
+  // Show loading on initial load only
+  if (isInitialLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loading size="lg" />
@@ -901,7 +1418,7 @@ export const AdminProducts: React.FC = () => {
           <div>
             <h1 className="text-3xl font-bold text-base-content">Products</h1>
             <p className="text-base-content/70 mt-1">
-              Manage your product catalouge
+              Manage your product catalog
             </p>
           </div>
           <Button
@@ -917,7 +1434,7 @@ export const AdminProducts: React.FC = () => {
         <div className="card bg-base-100 shadow-xl">
           <div className="card-body">
             <div className="flex flex-col md:flex-row gap-4">
-              <div className="form-control flex-1">
+              <div className="form-control flex-1 relative">
                 <input
                   type="text"
                   placeholder="Search products..."
@@ -925,6 +1442,11 @@ export const AdminProducts: React.FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
+                {isFetchingProducts && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <Loading size="sm" />
+                  </span>
+                )}
               </div>
               <div className="form-control">
                 <select
@@ -940,7 +1462,8 @@ export const AdminProducts: React.FC = () => {
                       </option>
                     ))
                   ) : (
-                    <option value="" disabled>
+                    <option value=""
+ disabled>
                       {adminCategories ? "No categories available" : "Loading categories..."}
                     </option>
                   )}
@@ -952,7 +1475,12 @@ export const AdminProducts: React.FC = () => {
 
         {/* Products Table */}
         {products.length > 0 ? (
-          <div className="card bg-base-100 shadow-xl">
+          <div className="card bg-base-100 shadow-xl relative">
+            {isFetchingProducts && (
+              <div className="absolute inset-0 bg-base-100/50 backdrop-blur-sm z-10 flex items-center justify-center">
+                <Loading size="lg" />
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="table table-zebra">
                 <thead>
@@ -972,9 +1500,7 @@ export const AdminProducts: React.FC = () => {
                           <div className="avatar">
                             <div className="mask mask-squircle w-12 h-12">
                               <img
-                                src={
-                                  product.images?.[0] || "/api/placeholder/50/50"
-                                }
+                                src={resolveProductImage(product.images, "/api/placeholder/50/50")}
                                 alt={product.name}
                               />
                             </div>
@@ -1026,10 +1552,14 @@ export const AdminProducts: React.FC = () => {
           <EmptyState
             icon={<Package className="w-20 h-20 text-base-content/30" />}
             title="No products found"
-            description="Start by adding your first product to the catalog."
+            description={
+              searchQuery || categoryFilter
+                ? "Try adjusting your search or filters."
+                : "Start by adding your first product to the catalog."
+            }
             action={{
               label: "Add Product",
-              onClick: () => console.log("Add product"),
+              onClick: () => setIsAddModalOpen(true),
             }}
           />
         )}

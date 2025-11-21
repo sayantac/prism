@@ -7,7 +7,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List
 
-from sqlalchemy import and_, desc
+from sqlalchemy import and_, desc, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.ml_models import UserSegment, UserSegmentMembership
@@ -29,16 +30,32 @@ class SegmentManager(BaseSegmentationService):
     ) -> Dict[str, Any]:
         """Create a new user segment."""
         try:
-            # Validate segment rules
-            self.rule_engine.validate_segment_rules(segment_data.get("criteria", {}))
+            raw_name = (segment_data.get("name") or "").strip()
+            if not raw_name:
+                raise ValueError("Segment name cannot be empty.")
 
-            # Create segment
+            existing = (
+                self.db.query(UserSegment.id)
+                .filter(func.lower(UserSegment.name) == raw_name.lower())
+                .first()
+            )
+            if existing:
+                raise ValueError(
+                    f"A segment named '{raw_name}' already exists. Please choose a different name."
+                )
+
+            criteria = segment_data.get("criteria") or {}
+            self.rule_engine.validate_segment_rules(criteria)
+
+            segment_type = (segment_data.get("segment_type") or "custom").lower()
+            description = (segment_data.get("description") or "").strip()
+
             segment = UserSegment(
                 id=uuid.uuid4(),
-                name=segment_data["name"],
-                description=segment_data.get("description", ""),
-                criteria=segment_data["criteria"],
-                segment_type=segment_data.get("segment_type", "custom"),
+                name=raw_name,
+                description=description,
+                criteria=criteria,
+                segment_type=segment_type,
                 is_active=segment_data.get("is_active", True),
                 auto_update=segment_data.get("auto_update", True),
                 update_frequency=segment_data.get("update_frequency"),
@@ -55,6 +72,14 @@ class SegmentManager(BaseSegmentationService):
             self.logger.info(f"Created user segment: {segment.name}")
             return self._serialize_segment(segment)
 
+        except IntegrityError as exc:
+            self.db.rollback()
+            if "ix_user_segments_name" in str(exc.orig).lower():
+                raise ValueError(
+                    f"A segment named '{segment_data.get('name')}' already exists. Please choose a different name."
+                )
+            self.logger.error(f"Database error creating segment: {exc}")
+            raise
         except Exception as e:
             self.db.rollback()
             self.logger.error(f"Error creating segment: {e}")
@@ -85,16 +110,43 @@ class SegmentManager(BaseSegmentationService):
 
             rules_changed = False
             for field in updateable_fields:
-                if field in segment_data:
-                    if (
-                        field == "criteria"
-                        and segment_data[field] != segment.criteria
-                    ):
-                        self.rule_engine.validate_segment_rules(segment_data[field])
-                        rules_changed = True
-                    setattr(segment, field, segment_data[field])
+                if field not in segment_data:
+                    continue
 
-            segment.updated_by = uuid.UUID(user_id)
+                value = segment_data[field]
+
+                if field == "name":
+                    new_name = (value or "").strip()
+                    if not new_name:
+                        raise ValueError("Segment name cannot be empty.")
+
+                    duplicate = (
+                        self.db.query(UserSegment.id)
+                        .filter(func.lower(UserSegment.name) == new_name.lower())
+                        .filter(UserSegment.id != segment.id)
+                        .first()
+                    )
+                    if duplicate:
+                        raise ValueError(
+                            f"A segment named '{new_name}' already exists. Please choose a different name."
+                        )
+                    segment.name = new_name
+                    continue
+
+                if field == "description":
+                    segment.description = (value or "").strip()
+                    continue
+
+                if field == "criteria":
+                    new_criteria = value or {}
+                    if new_criteria != segment.criteria:
+                        self.rule_engine.validate_segment_rules(new_criteria)
+                        rules_changed = True
+                    segment.criteria = new_criteria
+                    continue
+
+                setattr(segment, field, value)
+
             segment.updated_at = datetime.utcnow()
             segment.last_updated = datetime.utcnow()
 

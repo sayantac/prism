@@ -27,6 +27,14 @@ interface SearchParams extends PaginationParams {
   category?: string;
   min_price?: number;
   max_price?: number;
+  brand?: string;
+  sort?: string;
+  sort_by?: string;
+  sort_order?: "asc" | "desc";
+  use_vector_search?: boolean;
+  session_id?: string;
+  size?: number;
+  page_size?: number;
 }
 
 interface ReviewRequest {
@@ -64,7 +72,34 @@ export const productApi = apiSlice.injectEndpoints({
 
     // Search products with filters (Advanced search endpoint)
     searchProducts: builder.query<PaginatedResponse<Product>, SearchParams>({
-      query: (params) => buildQueryWithParams("/search/", params),
+      query: (params) => {
+        const {
+          page = 1,
+          limit,
+          size,
+          page_size,
+          sort,
+          sort_by,
+          sort_order,
+          use_vector_search,
+          ...filters
+        } = params;
+
+        const finalSize = size ?? page_size ?? limit ?? 20;
+        const finalSortBy = sort_by ?? (typeof sort === "string" && sort ? sort : undefined) ?? "relevance";
+        const finalSortOrder = sort_order ?? "desc";
+
+        const queryParams = {
+          ...filters,
+          page,
+          size: finalSize,
+          sort_by: finalSortBy,
+          sort_order: finalSortOrder,
+          use_vector_search: use_vector_search ?? true,
+        };
+
+        return buildQueryWithParams("/products/search", queryParams);
+      },
       transformResponse: (response: SearchResponse<Product>): PaginatedResponse<Product> => ({
         items: response.products || [],
         total: response.total_count || response.total || 0,

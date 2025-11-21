@@ -1,12 +1,23 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useGetSegmentPerformanceAnalyticsQuery,
+  useGetSegmentPerformanceQuery,
+  useGetUserSegmentsQuery,
+} from "../../../store/api/adminApi";
 
 // --- TYPE DEFINITIONS ---
 interface UserCluster {
+  key: string;
+  segment_id?: string;
   segment_name: string;
   user_count: number;
   avg_order_value: number;
   conversion_rate: number;
   revenue_contribution: number;
+  orders_count?: number;
+  revenue_per_member?: number;
+  status?: string;
+  is_active?: boolean;
 }
 
 interface Product {
@@ -24,129 +35,6 @@ interface BannerApiResponse {
   image_base64: string;
   saved_path: string;
 }
-
-// --- HARDCODED DATA ---
-const userClusters: UserCluster[] = [
-  {
-    segment_name: "New_Customers",
-
-    user_count: 182,
-
-    avg_order_value: 171.3029181494662,
-
-    conversion_rate: 154.4,
-
-    revenue_contribution: 48136.12,
-  },
-
-  {
-    segment_name: "Young Adults",
-
-    user_count: 100,
-
-    avg_order_value: 163.53236051502145,
-
-    conversion_rate: 233.0,
-
-    revenue_contribution: 38103.04,
-  },
-
-  {
-    segment_name: "High Value Customers",
-
-    user_count: 50,
-
-    avg_order_value: 301.44994350282485,
-
-    conversion_rate: 354.0,
-
-    revenue_contribution: 53356.64,
-  },
-
-  {
-    segment_name: "Electronics_Enthusiasts",
-
-    user_count: 36,
-
-    avg_order_value: 292.7189393939394,
-
-    conversion_rate: 366.67,
-
-    revenue_contribution: 38638.9,
-  },
-
-  {
-    segment_name: "Electronics Enthusiasts",
-
-    user_count: 0,
-
-    avg_order_value: 0.0,
-
-    conversion_rate: 0,
-
-    revenue_contribution: 0.0,
-  },
-
-  {
-    segment_name: "Bargain Hunters",
-
-    user_count: 0,
-
-    avg_order_value: 0.0,
-
-    conversion_rate: 0,
-
-    revenue_contribution: 0.0,
-  },
-
-  {
-    segment_name: "High_Value_Customers",
-
-    user_count: 0,
-
-    avg_order_value: 0.0,
-
-    conversion_rate: 0,
-
-    revenue_contribution: 0.0,
-  },
-
-  {
-    segment_name: "Frequent_Browsers",
-
-    user_count: 0,
-
-    avg_order_value: 0.0,
-
-    conversion_rate: 0,
-
-    revenue_contribution: 0.0,
-  },
-
-  {
-    segment_name: "At Risk Customers",
-
-    user_count: 0,
-
-    avg_order_value: 0.0,
-
-    conversion_rate: 0,
-
-    revenue_contribution: 0.0,
-  },
-
-  {
-    segment_name: "At_Risk_Customers",
-
-    user_count: 0,
-
-    avg_order_value: 0.0,
-
-    conversion_rate: 0,
-
-    revenue_contribution: 0.0,
-  },
-];
 
 const allProducts: Product[] = [
   {
@@ -223,12 +111,404 @@ const allProducts: Product[] = [
   },
 ];
 
-const BANNER_API_ENDPOINT = "http://localhost:8000/recommendations/generate-banner";
+const BANNER_API_ENDPOINT = "http://localhost:8000/api/v1/recommendations/generate-banner";
 
 function ProductBundleApp() {
-  const [selectedCluster, setSelectedCluster] = useState<UserCluster | null>(
-    null
-  );
+  const {
+    data: userSegments,
+    isLoading: userSegmentsLoading,
+    error: userSegmentsError,
+  } = useGetUserSegmentsQuery({});
+  const {
+    data: segmentPerformance,
+    isLoading: segmentPerformanceLoading,
+    error: segmentPerformanceError,
+  } = useGetSegmentPerformanceQuery({});
+  const {
+    data: segmentPerformanceAnalytics,
+    isLoading: segmentAnalyticsLoading,
+    error: segmentAnalyticsError,
+  } = useGetSegmentPerformanceAnalyticsQuery({});
+
+  const isSegmentsLoading =
+    userSegmentsLoading || segmentPerformanceLoading || segmentAnalyticsLoading;
+
+  const activeClusters = useMemo<UserCluster[]>(() => {
+    const performanceList = Array.isArray(segmentPerformance)
+      ? segmentPerformance
+      : [];
+    const analyticsList = Array.isArray(segmentPerformanceAnalytics)
+      ? segmentPerformanceAnalytics
+      : [];
+    const segmentList = Array.isArray(userSegments) ? userSegments : [];
+
+    const normalizeKey = (value?: string | number) =>
+      (value ?? "")
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    const toNumber = (value: any): number | null => {
+      if (value === null || value === undefined) {
+        return null;
+      }
+
+      if (typeof value === "number") {
+        return Number.isNaN(value) ? null : value;
+      }
+
+      const parsed = Number(value);
+      return Number.isNaN(parsed) ? null : parsed;
+    };
+
+    const coalesceNumber = (...values: any[]): number | null => {
+      for (const value of values) {
+        const parsed = toNumber(value);
+        if (parsed !== null) {
+          return parsed;
+        }
+      }
+
+      return null;
+    };
+
+    const coalesceString = (...values: any[]): string | null => {
+      for (const value of values) {
+        if (typeof value === "string" && value.trim().length > 0) {
+          return value;
+        }
+      }
+
+      return null;
+    };
+
+    const metaByKey = new Map<string, any>();
+    segmentList.forEach((meta) => {
+      const key = normalizeKey(meta?.segment_id ?? meta?.segment_name ?? meta?.name);
+      if (!key || metaByKey.has(key)) {
+        return;
+      }
+
+      metaByKey.set(key, meta);
+    });
+
+    const analyticsByKey = new Map<string, any>();
+    analyticsList.forEach((analytics) => {
+      const key = normalizeKey(
+        analytics?.segment_id ?? analytics?.segment_name ?? analytics?.name
+      );
+      if (!key || analyticsByKey.has(key)) {
+        return;
+      }
+
+      analyticsByKey.set(key, analytics);
+    });
+
+    const buildCombinedSegment = (
+      normalizedKey: string,
+      {
+        base,
+        analytics,
+        meta,
+      }: {
+        base?: any;
+        analytics?: any;
+        meta?: any;
+      }
+    ): UserCluster | null => {
+      const segmentIdRaw =
+        coalesceString(
+          meta?.segment_id,
+          meta?.id,
+          base?.segment_id,
+          base?.id,
+          analytics?.segment_id,
+          analytics?.id
+        ) ?? null;
+
+      const segmentName =
+        coalesceString(
+          analytics?.segment_name,
+          analytics?.name,
+          base?.segment_name,
+          base?.name,
+          meta?.segment_name,
+          meta?.name,
+          segmentIdRaw,
+          normalizedKey
+        ) ?? "Unnamed Segment";
+
+      const userCount =
+        coalesceNumber(
+          analytics?.member_count,
+          analytics?.user_count,
+          base?.user_count,
+          base?.member_count,
+          meta?.member_count
+        ) ?? 0;
+
+      const ordersCount =
+        coalesceNumber(
+          analytics?.orders_count,
+          base?.orders_count,
+          meta?.orders_count
+        ) ?? 0;
+
+      const totalRevenue =
+        coalesceNumber(
+          analytics?.total_revenue,
+          analytics?.revenue_contribution,
+          base?.total_revenue,
+          base?.revenue_contribution,
+          meta?.total_revenue
+        ) ?? 0;
+
+      let avgOrderValue =
+        coalesceNumber(
+          analytics?.avg_order_value,
+          base?.avg_order_value,
+          base?.average_order_value,
+          meta?.avg_order_value
+        );
+
+      if (
+        (avgOrderValue === null || avgOrderValue === undefined) &&
+        ordersCount > 0
+      ) {
+        avgOrderValue = totalRevenue / ordersCount;
+      }
+
+      if (
+        (avgOrderValue === null || avgOrderValue === undefined) &&
+        userCount > 0
+      ) {
+        avgOrderValue = totalRevenue / userCount;
+      }
+
+      if (avgOrderValue === null || avgOrderValue === undefined) {
+        avgOrderValue = 0;
+      }
+
+      let conversionRate =
+        coalesceNumber(
+          analytics?.conversion_rate,
+          base?.conversion_rate,
+          meta?.conversion_rate
+        );
+
+      if (
+        (conversionRate === null || conversionRate === undefined) &&
+        userCount > 0
+      ) {
+        conversionRate = (ordersCount / userCount) * 100;
+      }
+
+      if (conversionRate === null || conversionRate === undefined) {
+        conversionRate = 0;
+      }
+
+      let revenuePerMember =
+        coalesceNumber(
+          analytics?.revenue_per_member,
+          base?.revenue_per_member,
+          meta?.revenue_per_member
+        );
+
+      if (
+        (revenuePerMember === null || revenuePerMember === undefined) &&
+        userCount > 0
+      ) {
+        revenuePerMember = totalRevenue / userCount;
+      }
+
+      if (revenuePerMember === null || revenuePerMember === undefined) {
+        revenuePerMember = 0;
+      }
+
+      const status = coalesceString(
+        meta?.status,
+        base?.status,
+        analytics?.status
+      );
+
+      const isActiveFlag = (() => {
+        if (typeof meta?.is_active === "boolean") {
+          return meta.is_active;
+        }
+
+        if (typeof base?.is_active === "boolean") {
+          return base.is_active;
+        }
+
+        if (typeof analytics?.is_active === "boolean") {
+          return analytics.is_active;
+        }
+
+        if (status) {
+          return status.toLowerCase() === "active";
+        }
+
+        return userCount > 0;
+      })();
+
+      const stableKey =
+        coalesceString(
+          segmentIdRaw,
+          analytics?.segment_name,
+          base?.segment_name,
+          meta?.segment_name,
+          segmentName
+        ) ?? normalizedKey;
+
+      const finalAvgOrderValue = avgOrderValue ?? 0;
+      const finalConversionRate = conversionRate ?? 0;
+      const finalRevenuePerMember = revenuePerMember ?? 0;
+
+      return {
+        key: stableKey,
+        segment_id: segmentIdRaw ?? stableKey,
+        segment_name: segmentName,
+        user_count: userCount,
+        avg_order_value: finalAvgOrderValue,
+        conversion_rate: finalConversionRate,
+        revenue_contribution: totalRevenue,
+        orders_count: ordersCount,
+        revenue_per_member: finalRevenuePerMember,
+        status,
+        is_active: isActiveFlag,
+      };
+    };
+
+    const seenKeys = new Set<string>();
+    const combined: UserCluster[] = [];
+
+    performanceList.forEach((segment) => {
+      const normalizedKey = normalizeKey(
+        segment?.segment_id ?? segment?.segment_name ?? segment?.name
+      );
+      if (!normalizedKey) {
+        return;
+      }
+
+      const combinedSegment = buildCombinedSegment(normalizedKey, {
+        base: segment,
+        analytics: analyticsByKey.get(normalizedKey),
+        meta: metaByKey.get(normalizedKey),
+      });
+
+      if (combinedSegment) {
+        combined.push(combinedSegment);
+        seenKeys.add(normalizedKey);
+      }
+    });
+
+    analyticsList.forEach((segment) => {
+      const normalizedKey = normalizeKey(
+        segment?.segment_id ?? segment?.segment_name ?? segment?.name
+      );
+      if (!normalizedKey || seenKeys.has(normalizedKey)) {
+        return;
+      }
+
+      const combinedSegment = buildCombinedSegment(normalizedKey, {
+        analytics: segment,
+        meta: metaByKey.get(normalizedKey),
+      });
+
+      if (combinedSegment) {
+        combined.push(combinedSegment);
+        seenKeys.add(normalizedKey);
+      }
+    });
+
+    segmentList.forEach((meta) => {
+      const normalizedKey = normalizeKey(
+        meta?.segment_id ?? meta?.segment_name ?? meta?.name
+      );
+      if (!normalizedKey || seenKeys.has(normalizedKey)) {
+        return;
+      }
+
+      const combinedSegment = buildCombinedSegment(normalizedKey, {
+        meta,
+      });
+
+      if (combinedSegment) {
+        combined.push(combinedSegment);
+        seenKeys.add(normalizedKey);
+      }
+    });
+
+    return combined
+      .filter((segment) => segment.is_active !== false)
+      .sort((a, b) => (b.user_count ?? 0) - (a.user_count ?? 0));
+  }, [segmentPerformance, segmentPerformanceAnalytics, userSegments]);
+
+  const [isClusterDropdownOpen, setIsClusterDropdownOpen] = useState(false);
+  const [selectedSegmentKey, setSelectedSegmentKey] =
+    useState<string | null>(null);
+
+  const clusterDropdownRef = useRef<HTMLDivElement>(null);
+  const clusterButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!selectedSegmentKey) {
+      return;
+    }
+
+    const hasMatch = activeClusters.some(
+      (cluster) => cluster.key === selectedSegmentKey
+    );
+
+    if (!hasMatch) {
+      setSelectedSegmentKey(null);
+    }
+  }, [activeClusters, selectedSegmentKey]);
+
+  const selectedCluster = useMemo(() => {
+    if (!selectedSegmentKey) {
+      return null;
+    }
+
+    return (
+      activeClusters.find((cluster) => cluster.key === selectedSegmentKey) ??
+      null
+    );
+  }, [activeClusters, selectedSegmentKey]);
+
+  useEffect(() => {
+    if (!isClusterDropdownOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!clusterDropdownRef.current) {
+        return;
+      }
+
+      if (target && clusterDropdownRef.current.contains(target)) {
+        return;
+      }
+
+      setIsClusterDropdownOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsClusterDropdownOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isClusterDropdownOpen]);
+
   const [selectedProducts, setSelectedProducts] = useState<Product[]>([]);
   const [bundleName, setBundleName] = useState("");
   const [bundleDescription, setBundleDescription] = useState("");
@@ -250,9 +530,31 @@ function ProductBundleApp() {
     if (discount <= 0 || discount >= 100) return bundleTotalPrice;
     return bundleTotalPrice * (1 - discount / 100);
   }, [bundleTotalPrice, discount]);
- 
-  const isPreviewReady =
-    bundleName && selectedProducts.length > 0 && selectedCluster;
+
+  const isPreviewReady = Boolean(
+    bundleName && selectedProducts.length > 0 && selectedCluster
+  );
+
+  const segmentsError =
+    userSegmentsError ?? segmentPerformanceError ?? segmentAnalyticsError;
+
+  const clusterButtonLabel = selectedCluster
+    ? selectedCluster.segment_name
+    : isSegmentsLoading
+      ? "Loading clusters..."
+      : activeClusters.length
+        ? "Choose a Cluster"
+        : segmentsError
+          ? "Failed to load clusters"
+          : "No active clusters";
+
+  const dropdownEnabled = !isSegmentsLoading && activeClusters.length > 0;
+
+  useEffect(() => {
+    if (!dropdownEnabled && isClusterDropdownOpen) {
+      setIsClusterDropdownOpen(false);
+    }
+  }, [dropdownEnabled, isClusterDropdownOpen]);
 
   const handleProductToggle = (product: Product) => {
     setSelectedProducts((prev) => {
@@ -320,39 +622,69 @@ function ProductBundleApp() {
               Target a User Cluster
             </h2>
             <div className="mt-6 p-6 bg-base-200 rounded-lg">
-              <div className="dropdown dropdown-bottom">
-                <label tabIndex={0} className="btn btn-primary lg:btn-wide">
-                  {selectedCluster
-                    ? selectedCluster.segment_name
-                    : "Choose a Cluster"}
+              <div
+                ref={clusterDropdownRef}
+                className="relative"   // remove DaisyUI's `dropdown` class
+              >
+                <button
+                  type="button"
+                  ref={clusterButtonRef}
+                  className={`btn btn-primary lg:btn-wide ${dropdownEnabled ? "" : "btn-disabled"
+                    }`}
+                  disabled={!dropdownEnabled}
+                  onClick={() => {
+                    if (dropdownEnabled) setIsClusterDropdownOpen(prev => !prev);
+                  }}
+                >
+                  {clusterButtonLabel}
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5 ml-2"
+                    className={`h-5 w-5 ml-2 transition-transform duration-200 ${isClusterDropdownOpen ? "rotate-180" : ""
+                      }`}
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M19 9l-7 7-7-7"
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                   </svg>
-                </label>
-                <ul
-                  tabIndex={0}
-                  className="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-64 z-40"
-                >
-                  {userClusters.map((cluster) => (
-                    <li key={cluster.segment_name}>
-                      <a onClick={() => setSelectedCluster(cluster)}>
-                        {cluster.segment_name}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
+                </button>
+
+                {isClusterDropdownOpen && (
+                  <ul
+                    ref={clusterDropdownRef}
+                    role="listbox"
+                    className="absolute mt-2 left-0 z-50 w-64 menu p-2 shadow bg-base-100 rounded-box max-h-80 overflow-y-auto"
+                  >
+                    {activeClusters.map((cluster) => (
+                      <li key={cluster.key}>
+                        <button
+                          type="button"
+                          className={`flex flex-col gap-0.5 rounded-lg px-3 py-2 text-left hover:bg-primary/10 ${selectedSegmentKey === cluster.key
+                            ? "bg-primary/10 text-primary"
+                            : ""
+                            }`}
+                          onClick={() => {
+                            setSelectedSegmentKey(cluster.key);
+                            setIsClusterDropdownOpen(false); // <-- main close event
+                            clusterButtonRef.current?.focus();
+                          }}
+                        >
+                          <span className="font-semibold">{cluster.segment_name}</span>
+                          <span className="text-xs text-base-content/60">
+                            {cluster.user_count.toLocaleString()} users
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
+              {segmentsError && !isSegmentsLoading && (
+                <p className="text-xs text-error mt-3">
+                  Unable to load active segments. Please verify the segmentation
+                  service.
+                </p>
+              )}
               {/* --- CORRECTED SECTION: STATS ARE NOW SHOWN --- */}
               {selectedCluster && (
                 <div className="stats stats-vertical lg:stats-horizontal shadow mt-6 w-full bg-base-100">
@@ -446,9 +778,8 @@ function ProductBundleApp() {
                     <div
                       key={product.uniq_id}
                       onClick={() => handleProductToggle(product)}
-                      className={`card bg-base-200 shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer border-2 ${
-                        isSelected ? "border-primary" : "border-transparent"
-                      }`}
+                      className={`card bg-base-200 shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer border-2 ${isSelected ? "border-primary" : "border-transparent"
+                        }`}
                     >
                       <figure className="relative">
                         <img
@@ -473,14 +804,13 @@ function ProductBundleApp() {
                           </div>
                         )}
                       </figure>
-                      <div className="card-body p-4">
-                        <h3 className="card-title text-base leading-tight">
+                      <div className="card-body p-4 flex flex-col justify-between min-h-[8rem]">
+                        <h3 className="card-title text-base leading-tight line-clamp-2">
                           {product.product_name}
                         </h3>
-                        <div className="flex justify-between items-center mt-2">
-                          <p className="text-sm opacity-70">
-                            {product.brand_name}
-                          </p>
+
+                        <div className="mt-auto flex items-center justify-between">
+                          <p className="text-sm opacity-70 truncate">{product.brand_name}</p>
                           <p className="font-bold text-lg text-secondary">
                             ${product.selling_price?.toFixed(2)}
                           </p>

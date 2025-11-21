@@ -860,13 +860,21 @@ async def get_segment_performance(
 
             revenue_per_member = round(total_revenue / member_count, 2) if member_count > 0 else 0.0
 
+            created_at = segment.created_at.isoformat() if getattr(segment, "created_at", None) else None
+            updated_at = segment.updated_at.isoformat() if getattr(segment, "updated_at", None) else None
+
             segment_data.append({
+                "segment_id": str(segment.id),
                 "segment_name": segment.name,
+                "description": segment.description,
                 "member_count": member_count,
                 "orders_count": orders_count,
                 "avg_order_value": avg_order_value,
                 "total_revenue": round(total_revenue, 2),
-                "revenue_per_member": revenue_per_member
+                "revenue_per_member": revenue_per_member,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "last_updated": updated_at,
             })
 
         return {

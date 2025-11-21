@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str  = "ABCD1234EFGH5678IJKL9012MNOP3456QRST7890UVWX"
     JWT_ISSUER: str = "ecommerce-backend"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1230
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # CORS - Comma-separated list of allowed origins
@@ -61,13 +61,13 @@ class Settings(BaseSettings):
         return []
 
     # Database Configuration - Use environment variables
-    POSTGRES_SERVER: str = "localhost"
-    POSTGRES_USER: str = "tanmay"
-    POSTGRES_PASSWORD: str="123"
-    POSTGRES_DB: str = "recom_sys"
+    POSTGRES_SERVER: str = "postgres"
+    POSTGRES_USER: str = "ecommerce_user"
+    POSTGRES_PASSWORD: str = "ecommerce_pass"
+    POSTGRES_DB: str = "ecommerce"
     POSTGRES_PORT: str = "5432"
 
-    DATABASE_URL: Optional[str] = "postgresql://tanmay:123@localhost:5432/recom_sys"
+    DATABASE_URL: Optional[str] = None
 
     @validator("DATABASE_URL", pre=True)
     def assemble_db_connection(cls, v, values):
@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     # Used for image generation (product posters, banners)
     GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY", None)
     GEMINI_MODEL: str = "models/gemini-2.0-flash"  # Gemini model for image generation
-    GEMINI_IMAGE_MODEL: str = "imagen-3.0-generate-001"  # Imagen for image generation
+    GEMINI_IMAGE_MODEL: str = "imagen-4.0-generate-001"  # Imagen for image generation
 
     # Image generation settings
     IMAGE_GENERATION_SIZE: str = "1024x1024"  # Default image size

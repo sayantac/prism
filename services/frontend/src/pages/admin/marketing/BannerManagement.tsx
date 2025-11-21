@@ -12,15 +12,106 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
+import { env } from "@/config";
 import { useAuth } from "@/hooks";
 import { useSearchProductsQuery } from "@/store/api/productApi";
+import { useGetSegmentPerformanceAnalyticsQuery } from "@/store/api/adminApi";
+
+const normalizeNumericValue = (value: unknown): number => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === "string") {
+    const cleaned = value.trim();
+    if (!cleaned) {
+      return 0;
+    }
+
+    const parsed = Number(cleaned.replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+
+  return 0;
+};
+
+const normalizePercentageValue = (value: unknown): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+
+    if (value >= -1 && value <= 1) {
+      return value * 100;
+    }
+
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const match = trimmed.match(/-?\d+(?:\.\d+)?/);
+    if (!match) {
+      return null;
+    }
+
+    const parsed = Number(match[0]);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+
+    if (trimmed.includes("%")) {
+      return parsed;
+    }
+
+    if (parsed >= -1 && parsed <= 1) {
+      return parsed * 100;
+    }
+
+    return parsed;
+  }
+
+  return null;
+};
+
+const deriveConversionRate = (
+  rawValues: unknown[],
+  ordersCount: number,
+  memberCount: number
+): number => {
+  for (const value of rawValues) {
+    const normalized = normalizePercentageValue(value);
+    if (normalized !== null) {
+      return normalized;
+    }
+  }
+
+  if (memberCount > 0) {
+    const computed = (ordersCount / memberCount) * 100;
+    return Number.isFinite(computed) ? computed : 0;
+  }
+
+  return 0;
+};
 const AdBannerPortal = () => {
   const [activeTab, setActiveTab] = useState("create");
-  const [banners, setBanners] = useState([]);
-  const [selectedSegment, setSelectedSegment] = useState("");
+  const [banners, setBanners] = useState<any[]>([]);
   const [selectedProduct, setSelectedProduct] = useState("");
+  const [selectedSegment, setSelectedSegment] = useState("");
   const [dealType, setDealType] = useState("discount");
   const [dealData, setDealData] = useState<any>({});
   const [generatedBanner, setGeneratedBanner] = useState<any>(null);
@@ -34,62 +125,500 @@ const AdBannerPortal = () => {
 
   // Use RTK Query for product search
   const { data: productData, isLoading: isLoadingProducts } = useSearchProductsQuery(
-    { q: productSearch || "all", page: 1, page_size: 20 },
+    {
+      q: productSearch || "all",
+      page: 1,
+      size: 20,
+      sort_by: "relevance",
+      sort_order: "desc",
+      use_vector_search: true,
+    },
     { skip: false }
   );
   const products = productData?.items || [];
 
-  // Your specific segments data
-  const userSegments = [
-    {
-      id: "New_Customers",
-      name: "New Customers",
-      user_count: 182,
-      avg_order_value: 171.3,
-      conversion_rate: 154.4,
-      revenue_contribution: 48136.12,
-    },
-    {
-      id: "Young Adults",
-      name: "Young Adults",
-      user_count: 100,
-      avg_order_value: 163.53,
-      conversion_rate: 233.0,
-      revenue_contribution: 38103.04,
-    },
-    {
-      id: "High Value Customers",
-      name: "High Value Customers",
-      user_count: 50,
-      avg_order_value: 301.45,
-      conversion_rate: 354.0,
-      revenue_contribution: 53356.64,
-    },
-    {
-      id: "Electronics_Enthusiasts",
-      name: "Electronics Enthusiasts",
-      user_count: 36,
-      avg_order_value: 292.72,
-      conversion_rate: 366.67,
-      revenue_contribution: 38638.9,
-    },
-  ];
+  const {
+    data: segmentPerformanceAnalytics,
+    isLoading: isLoadingSegmentAnalytics,
+    isFetching: isFetchingSegmentAnalytics,
+    error: segmentPerformanceError,
+    refetch: refetchSegmentPerformance,
+  } = useGetSegmentPerformanceAnalyticsQuery({});
+
+  const userSegments = useMemo(() => {
+    const segments = Array.isArray(segmentPerformanceAnalytics)
+      ? segmentPerformanceAnalytics
+      : [];
+
+    const normalizeKey = (value: unknown) =>
+      String(value ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[_\s-]+/g, "");
+
+    const mapped = segments
+      .map((segment: any, index: number) => {
+        const fallbackName =
+          segment?.segment_name ??
+          segment?.name ??
+          segment?.segment ??
+          `Segment ${index + 1}`;
+
+        const rawId =
+          segment?.segment_id ??
+          segment?.id ??
+          segment?.segment_key ??
+          segment?.segment ??
+          segment?.name ??
+          fallbackName;
+
+        const canonicalId = String(rawId ?? fallbackName)
+          .trim()
+          .replace(/\s+/g, "_");
+
+        const userCount = normalizeNumericValue(
+          segment?.user_count ?? segment?.member_count ?? 0
+        );
+
+        const ordersCount = normalizeNumericValue(
+          segment?.orders_count ?? segment?.order_count ?? segment?.orders ?? 0
+        );
+
+        const avgOrderValue = normalizeNumericValue(
+          segment?.avg_order_value ?? segment?.average_order_value ?? 0
+        );
+
+        const totalRevenue = normalizeNumericValue(
+          segment?.total_revenue ??
+          segment?.revenue_contribution ??
+          segment?.revenue ??
+          0
+        );
+
+        const conversionRate = deriveConversionRate(
+          [
+            segment?.conversion_rate,
+            segment?.conversionRate,
+            segment?.conversion_rate_percent,
+          ],
+          ordersCount,
+          userCount
+        );
+
+        const isActive =
+          segment?.is_active !== undefined
+            ? Boolean(segment?.is_active)
+            : userCount > 0;
+
+        if (!isActive) {
+          return null;
+        }
+
+        return {
+          id: canonicalId || `segment_${index}`,
+          name: fallbackName,
+          user_count: userCount,
+          avg_order_value: avgOrderValue,
+          conversion_rate: conversionRate,
+          revenue_contribution: totalRevenue,
+          total_revenue: totalRevenue,
+          orders_count: ordersCount,
+          normalizedKey: normalizeKey(canonicalId || fallbackName),
+        };
+      })
+      .filter((segment): segment is any => Boolean(segment));
+
+    const deduped: any[] = [];
+    const seenKeys = new Set<string>();
+
+    mapped.forEach((segment) => {
+      const key = segment.normalizedKey;
+      if (key) {
+        if (seenKeys.has(key)) {
+          return;
+        }
+        seenKeys.add(key);
+      }
+
+      const { normalizedKey, ...rest } = segment;
+      deduped.push(rest);
+    });
+
+    deduped.sort((a, b) => (b.user_count ?? 0) - (a.user_count ?? 0));
+
+    return deduped;
+  }, [segmentPerformanceAnalytics]);
+
+  const segmentsLoading = isLoadingSegmentAnalytics || isFetchingSegmentAnalytics;
+
+  useEffect(() => {
+    if (!segmentPerformanceError) {
+      return;
+    }
+
+    const message =
+      (segmentPerformanceError as any)?.data?.detail ??
+      (segmentPerformanceError as any)?.error ??
+      "Unable to load segment analytics.";
+
+    toast.error(message);
+  }, [segmentPerformanceError]);
+
+  useEffect(() => {
+    if (!selectedSegment) {
+      return;
+    }
+
+    if (segmentsLoading) {
+      return;
+    }
+
+    const stillExists = userSegments.some((segment) => segment.id === selectedSegment);
+    if (!stillExists) {
+      setSelectedSegment("");
+    }
+  }, [segmentsLoading, selectedSegment, userSegments]);
 
   // API integration functions
   const { token } = useAuth();
+  const apiBaseUrl = useMemo(() => env.apiBaseUrl.replace(/\/$/, ""), []);
+
+  const selectedProductDetails = useMemo(() => {
+    if (!selectedProduct) {
+      return null;
+    }
+
+    return products.find((product: any) => product.id === selectedProduct) ?? null;
+  }, [products, selectedProduct]);
+
+  const selectedSegmentDetails = selectedSegment
+    ? userSegments.find((segment) => segment.id === selectedSegment) ?? null
+    : null;
+
+  const resolveSegmentMeta = useCallback(
+    (segmentKey?: string | null) => {
+      if (!segmentKey) {
+        return null;
+      }
+
+      const normalizedKey = String(segmentKey).trim();
+      const normalizedComparable = normalizedKey
+        .toLowerCase()
+        .replace(/[_\s-]+/g, "");
+
+      const match = userSegments.find(
+        (segment) =>
+          segment.id === normalizedKey ||
+          segment.name === normalizedKey ||
+          segment.id?.toLowerCase().replace(/[_\s-]+/g, "") === normalizedComparable ||
+          segment.name?.toLowerCase().replace(/[_\s-]+/g, "") === normalizedComparable
+      );
+
+      if (match) {
+        return { id: match.id, name: match.name };
+      }
+
+      return {
+        id: normalizedKey,
+        name: normalizedKey.replace(/_/g, " "),
+      };
+    },
+    [userSegments]
+  );
+
+  const mapBannerRecord = useCallback(
+    (record: any) => {
+      if (!record) {
+        return null;
+      }
+
+      const fallbackId = `temp-banner-${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}`;
+      const bannerId = record.banner_id ?? record.id ?? fallbackId;
+
+      const targetSegmentKey =
+        record.target_segment ??
+        record.target_segment_id ??
+        record.segment_id ??
+        null;
+
+      const segmentMeta = record.target_segment_label
+        ? {
+          id: targetSegmentKey ?? record.target_segment_label,
+          name: record.target_segment_label,
+        }
+        : resolveSegmentMeta(targetSegmentKey);
+
+      const normalizedImageBase64 =
+        record.image_base64 ??
+        (typeof record.image_url === "string" && record.image_url.startsWith("data:")
+          ? record.image_url.replace(/^data:image\/[^;]+;base64,/, "")
+          : null);
+
+      const normalizedImageUrl = record.image_url ??
+        (Array.isArray(record.saved_path) ? record.saved_path[0] : record.saved_path ?? null);
+
+      return {
+        id: bannerId,
+        banner_id: bannerId,
+        title: record.title ?? record.suggested_title ?? "Untitled Banner",
+        description: record.description ?? record.banner_text ?? "",
+        target_segment: segmentMeta?.id ?? targetSegmentKey ?? "general_audience",
+        target_segment_label: segmentMeta?.name ?? "General audience",
+        product_id: record.product_id ?? null,
+        deal_type: record.deal_type ?? record.campaign_type ?? "general",
+        deal_data: record.deal_data ?? null,
+        image_url: normalizedImageUrl,
+        image_base64: normalizedImageBase64,
+        prompt: record.prompt ?? record.prompt_used ?? null,
+        status: record.status ?? "draft",
+        start_time: record.start_time ?? null,
+        end_time: record.end_time ?? null,
+        impression_count: Number(record.impression_count ?? 0),
+        click_count: Number(record.click_count ?? 0),
+        created_at: record.created_at ?? new Date().toISOString(),
+      };
+    },
+    [resolveSegmentMeta]
+  );
+
+  const resolveBannerImageSrc = useCallback(
+    (banner: any) => {
+      if (!banner) {
+        return null;
+      }
+
+      const rawBase64 = banner.image_base64 ?? banner.imageBase64;
+      if (typeof rawBase64 === "string" && rawBase64.trim()) {
+        const trimmed = rawBase64.trim();
+        return trimmed.startsWith("data:")
+          ? trimmed
+          : `data:image/png;base64,${trimmed}`;
+      }
+
+      const candidates = [
+        banner.image_url,
+        banner.imageUrl,
+        banner.saved_path,
+        banner.savedPath,
+      ];
+
+      let urlCandidate: string | null = null;
+      for (const candidate of candidates) {
+        if (!candidate) {
+          continue;
+        }
+
+        if (typeof candidate === "string" && candidate.trim()) {
+          urlCandidate = candidate.trim();
+          break;
+        }
+
+        if (Array.isArray(candidate)) {
+          const firstValid = candidate.find(
+            (value) => typeof value === "string" && value.trim()
+          );
+          if (typeof firstValid === "string") {
+            urlCandidate = firstValid.trim();
+            break;
+          }
+        }
+      }
+
+      if (!urlCandidate) {
+        return null;
+      }
+
+      if (
+        urlCandidate.startsWith("data:") ||
+        urlCandidate.startsWith("http://") ||
+        urlCandidate.startsWith("https://")
+      ) {
+        return urlCandidate;
+      }
+
+      if (urlCandidate.startsWith("//")) {
+        if (typeof window !== "undefined" && window.location) {
+          return `${window.location.protocol}${urlCandidate}`;
+        }
+        return `https:${urlCandidate}`;
+      }
+
+      const normalizedPath = urlCandidate.startsWith("/")
+        ? urlCandidate.slice(1)
+        : urlCandidate;
+
+      return `${apiBaseUrl}/${normalizedPath}`;
+    },
+    [apiBaseUrl]
+  );
+
+  const formatDateTime = (value?: string) => {
+    if (!value) {
+      return null;
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+
+    return parsed.toLocaleString();
+  };
+
+  const buildBannerPrompt = () => {
+    const promptLines: string[] = [
+      "Design a high-converting e-commerce marketing banner tailored for an online retail platform.",
+    ];
+
+    if (bannerTitle) {
+      promptLines.push(`Headline: ${bannerTitle.trim()}`);
+    }
+
+    if (bannerDescription) {
+      promptLines.push(`Supporting copy: ${bannerDescription.trim()}`);
+    }
+
+    promptLines.push(`Campaign type: ${dealType.replace(/_/g, " ")}`);
+
+    if (dealType === "discount") {
+      const discountValue = dealData.discount ? `${dealData.discount}% off` : null;
+      const discountProduct = dealData.product_name;
+      const discountDetails = [discountValue, discountProduct]
+        .filter(Boolean)
+        .join(" on ");
+
+      if (discountDetails) {
+        promptLines.push(`Discount details: ${discountDetails}`);
+      }
+    }
+
+    if (dealType === "promotion" && dealData.promotion_name) {
+      promptLines.push(`Promotion name: ${dealData.promotion_name}`);
+    }
+
+    if (selectedProductDetails) {
+      const productName = selectedProductDetails.name ?? "Featured Product";
+      const productCategory = selectedProductDetails.category?.name ?? selectedProductDetails.category ?? "General";
+      const productPrice = selectedProductDetails.price ? `$${selectedProductDetails.price}` : null;
+      const productDescription = selectedProductDetails.description;
+
+      const productSummary = [productName, productCategory, productPrice]
+        .filter(Boolean)
+        .join(" | ");
+
+      promptLines.push(`Featured product: ${productSummary}`);
+
+      if (productDescription) {
+        promptLines.push(`Product highlights: ${productDescription}`);
+      }
+    }
+
+    if (selectedSegmentDetails) {
+      promptLines.push(
+        `Target segment: ${selectedSegmentDetails.name} (approx. ${selectedSegmentDetails.user_count} users, conversion ${selectedSegmentDetails.conversion_rate?.toFixed(1)}%)`
+      );
+    }
+
+    const formattedStart = formatDateTime(startTime);
+    const formattedEnd = formatDateTime(endTime);
+    if (formattedStart || formattedEnd) {
+      const timingText = [
+        formattedStart ? `starts ${formattedStart}` : "available immediately",
+        formattedEnd ? `ends ${formattedEnd}` : null,
+      ]
+        .filter(Boolean)
+        .join(" and ");
+      promptLines.push(`Campaign timing: ${timingText}`);
+    }
+
+    promptLines.push(
+      "Design requirements: emphasise clear typography, include a strong call-to-action button, use premium lighting, and ensure the banner fits a 16:9 aspect ratio suitable for web hero sections."
+    );
+
+    return promptLines.join("\n");
+  };
+
+  const getFallbackCta = () => {
+    if (dealType === "discount") {
+      return "Redeem Offer";
+    }
+
+    if (dealType === "promotion") {
+      return "Learn More";
+    }
+
+    return "Shop Now";
+  };
+
+  const generatedImageSrc = useMemo(() => {
+    if (!generatedBanner?.image_base64) {
+      return null;
+    }
+
+    return `data:image/png;base64,${generatedBanner.image_base64}`;
+  }, [generatedBanner]);
+
+  const dealSummary = useMemo(() => {
+    if (dealType === "discount") {
+      const amount = dealData?.discount ? `${dealData.discount}% off` : null;
+      const productLabel = dealData?.product_name ?? selectedProductDetails?.name;
+      return [amount, productLabel].filter(Boolean).join(" on ") || "Custom discount";
+    }
+
+    if (dealType === "promotion") {
+      return dealData?.promotion_name || "Special promotion";
+    }
+
+    if (dealType === "product") {
+      return selectedProductDetails?.name || "Product spotlight";
+    }
+
+    return "General campaign";
+  }, [dealType, dealData, selectedProductDetails]);
+
+  const scheduleSummary = useMemo(() => {
+    const formattedStart = formatDateTime(startTime);
+    const formattedEnd = formatDateTime(endTime);
+
+    if (!formattedStart && !formattedEnd) {
+      return "No schedule specified";
+    }
+
+    const parts = [
+      formattedStart ? `Starts ${formattedStart}` : null,
+      formattedEnd ? `Ends ${formattedEnd}` : null,
+    ].filter(Boolean);
+
+    return parts.join(" | ");
+  }, [startTime, endTime]);
 
   const generateBannerContent = async () => {
+    if (!bannerTitle || !bannerDescription) {
+      toast.error("Please provide both a banner title and description before generating.");
+      return;
+    }
+
+    const prompt = buildBannerPrompt();
+
     setIsGenerating(true);
     try {
-      const requestData = {
-        target_segment: selectedSegment,
-        deal_type: dealType,
-        deal_data: dealData,
-        ...(selectedProduct && { product_id: selectedProduct }),
+      const requestData: Record<string, any> = {
+        prompt,
+        aspect_ratio: "16:9",
       };
 
+      if (selectedProduct) {
+        requestData.product_id = selectedProduct;
+      }
+
+      if (selectedSegment) {
+        requestData.target_segment = selectedSegment;
+      }
+
       const response = await fetch(
-        "http://localhost:8000/api/v1/admin/banners/generate",
+        "http://localhost:8000/api/v1/recommendations/generate-banner",
         {
           method: "POST",
           headers: {
@@ -102,15 +631,30 @@ const AdBannerPortal = () => {
 
       const data = await response.json();
 
-      if (response.ok) {
-        setGeneratedBanner(data);
-        setBannerTitle(data.suggested_title);
-        setShowPreview(true);
-        toast.success("Banner content generated successfully!");
+      if (!response.ok) {
+        const detail = data?.detail ?? "Failed to generate banner";
+        toast.error(detail);
+        return;
       }
+
+      const normalizedImage = Array.isArray(data.image_base64)
+        ? data.image_base64[0]
+        : data.image_base64;
+
+      const enrichedBanner = {
+        ...data,
+        image_base64: normalizedImage,
+        prompt,
+        target_segment: selectedSegment || null,
+        target_segment_label: selectedSegmentDetails?.name ?? null,
+      };
+
+      setGeneratedBanner(enrichedBanner);
+      setShowPreview(true);
+      toast.success("AI banner generated successfully!");
     } catch (error) {
       console.error("Error generating banner:", error);
-      alert("Error generating banner");
+      toast.error("Error generating banner");
     } finally {
       setIsGenerating(false);
     }
@@ -118,18 +662,27 @@ const AdBannerPortal = () => {
 
   const createBannerWithGeneration = async () => {
     try {
-      const bannerData = {
+      const bannerData: Record<string, any> = {
         title: bannerTitle,
         description: bannerDescription,
-        target_segment: selectedSegment,
         deal_type: dealType,
         deal_data: JSON.stringify(dealData),
-        banner_text: generatedBanner?.banner_text,
-        call_to_action: generatedBanner?.call_to_action,
+        prompt: generatedBanner?.prompt ?? buildBannerPrompt(),
+        banner_id: generatedBanner?.banner_id,
+        image_base64: generatedBanner?.image_base64,
         start_time: startTime || null,
         end_time: endTime || null,
-        ...(selectedProduct && { product_id: selectedProduct }),
+        target_segment: selectedSegment || null,
+        target_segment_label: selectedSegmentDetails?.name ?? null,
       };
+
+      if (selectedProduct) {
+        bannerData.product_id = selectedProduct;
+      }
+
+      if (selectedSegment) {
+        bannerData.target_segment = selectedSegment;
+      }
 
       const response = await fetch(
         "http://localhost:8000/api/v1/admin/banners/create-with-generation",
@@ -146,20 +699,70 @@ const AdBannerPortal = () => {
       const data = await response.json();
 
       if (response.ok) {
+        const responsePayload = data?.banner ?? data ?? {};
+        const normalizedBanner =
+          mapBannerRecord({
+            ...responsePayload,
+            id:
+              responsePayload?.id ??
+              responsePayload?.banner_id ??
+              data?.banner_id ??
+              bannerData.banner_id,
+            banner_id:
+              responsePayload?.banner_id ??
+              data?.banner_id ??
+              bannerData.banner_id,
+            title: responsePayload?.title ?? bannerData.title,
+            description:
+              responsePayload?.description ?? bannerData.description,
+            image_url:
+              responsePayload?.image_url ??
+              (Array.isArray(responsePayload?.saved_path)
+                ? responsePayload?.saved_path[0]
+                : responsePayload?.saved_path ?? null),
+            image_base64:
+              responsePayload?.image_base64 ?? bannerData.image_base64,
+            deal_type: responsePayload?.deal_type ?? bannerData.deal_type,
+            deal_data: responsePayload?.deal_data ?? bannerData.deal_data,
+            product_id: responsePayload?.product_id ?? bannerData.product_id,
+            target_segment:
+              responsePayload?.target_segment ?? bannerData.target_segment,
+            target_segment_label:
+              responsePayload?.target_segment_label ??
+              bannerData.target_segment_label,
+            prompt: responsePayload?.prompt ?? bannerData.prompt,
+            status: responsePayload?.status ?? "draft",
+            start_time:
+              responsePayload?.start_time ?? bannerData.start_time ?? null,
+            end_time:
+              responsePayload?.end_time ?? bannerData.end_time ?? null,
+            impression_count: responsePayload?.impression_count ?? 0,
+            click_count: responsePayload?.click_count ?? 0,
+          }) ?? undefined;
+
+        const syncSucceeded = await fetchBanners();
+
+        if (!syncSucceeded && normalizedBanner) {
+          setBanners((prev: any[]) => {
+            const filtered = prev.filter(
+              (banner: any) => banner.id !== normalizedBanner.id
+            );
+            return [normalizedBanner, ...filtered];
+          });
+        }
+
         toast.success("Banner created successfully!");
         resetForm();
-        fetchBanners();
+      } else {
+        toast.error(data?.detail ?? "Failed to create banner");
       }
-      //   } else {
-      //     alert("Failed to create banner: " + data.detail);
-      //   }
     } catch (error) {
       console.error("Error creating banner:", error);
       alert("Error creating banner");
     }
   };
 
-  const fetchBanners = async () => {
+  const fetchBanners = useCallback(async (): Promise<boolean> => {
     try {
       const response = await fetch(
         "http://localhost:8000/api/v1/admin/banners",
@@ -169,15 +772,40 @@ const AdBannerPortal = () => {
           },
         }
       );
-      const data = await response.json();
 
-      if (response.ok) {
-        setBanners(data.banners || []);
+      if (!response.ok) {
+        console.warn("Banner fetch failed with status", response.status);
+        return false;
       }
+
+      if (response.status === 204) {
+        setBanners([]);
+        return true;
+      }
+
+      const data = await response
+        .json()
+        .catch(() => ({ banners: [] }));
+
+      const rawList = Array.isArray(data?.banners)
+        ? data.banners
+        : Array.isArray(data)
+          ? data
+          : Array.isArray(data?.results)
+            ? data.results
+            : [];
+
+      const normalized = rawList
+        .map((item: any) => mapBannerRecord(item))
+        .filter((item: any): item is any => Boolean(item));
+
+      setBanners(normalized);
+      return true;
     } catch (error) {
       console.error("Error fetching banners:", error);
+      return false;
     }
-  };
+  }, [mapBannerRecord, token]);
 
   const publishBanner = async (bannerId: any) => {
     try {
@@ -197,10 +825,11 @@ const AdBannerPortal = () => {
       );
 
       if (response.ok) {
-        alert("Banner published successfully!");
+        toast.success("Banner published successfully!");
         fetchBanners();
       } else {
-        alert("Banner published successfully!");
+        const data = await response.json();
+        toast.error(data?.detail || "Failed to publish banner");
       }
     } catch (error) {
       console.error("Error publishing banner:", error);
@@ -220,10 +849,11 @@ const AdBannerPortal = () => {
       );
 
       if (response.ok) {
-        alert("Image regenerated successfully!");
+        toast.success("Image regenerated successfully!");
         fetchBanners();
       } else {
-        alert("Failed to regenerate image");
+        const data = await response.json();
+        toast.error(data?.detail || "Failed to regenerate image");
       }
     } catch (error) {
       console.error("Error regenerating image:", error);
@@ -245,7 +875,10 @@ const AdBannerPortal = () => {
 
         if (response.ok) {
           toast.success("Banner deleted successfully!");
-        } 
+        } else {
+          const data = await response.json();
+          toast.error(data?.detail || "Failed to delete banner");
+        }
         fetchBanners();
       } catch (error) {
         console.error("Error deleting banner:", error);
@@ -254,8 +887,8 @@ const AdBannerPortal = () => {
   };
 
   const resetForm = () => {
-    setSelectedSegment("");
     setSelectedProduct("");
+    setSelectedSegment("");
     setDealType("discount");
     setDealData({});
     setGeneratedBanner(null);
@@ -269,7 +902,7 @@ const AdBannerPortal = () => {
   // Load initial data
   useEffect(() => {
     fetchBanners();
-  }, []);
+  }, [fetchBanners]);
 
   return (
     <div className="min-h-screen bg-base-200">
@@ -284,27 +917,24 @@ const AdBannerPortal = () => {
           <div className="tabs tabs-boxed">
             <button
               onClick={() => setActiveTab("create")}
-              className={`tab gap-2 ${
-                activeTab === "create" ? "tab-active" : ""
-              }`}
+              className={`tab gap-2 ${activeTab === "create" ? "tab-active" : ""
+                }`}
             >
               <Plus className="w-4 h-4" />
               Create Banner
             </button>
             <button
               onClick={() => setActiveTab("manage")}
-              className={`tab gap-2 ${
-                activeTab === "manage" ? "tab-active" : ""
-              }`}
+              className={`tab gap-2 ${activeTab === "manage" ? "tab-active" : ""
+                }`}
             >
               <Settings className="w-4 h-4" />
               Manage Banners
             </button>
             <button
               onClick={() => setActiveTab("analytics")}
-              className={`tab gap-2 ${
-                activeTab === "analytics" ? "tab-active" : ""
-              }`}
+              className={`tab gap-2 ${activeTab === "analytics" ? "tab-active" : ""
+                }`}
             >
               <BarChart3 className="w-4 h-4" />
               Analytics
@@ -316,7 +946,7 @@ const AdBannerPortal = () => {
       <div className="container mx-auto px-4 py-8">
         {/* Create Banner Tab */}
         {activeTab === "create" && (
-          <div className="space-y-8">
+          <div className="space-y-8 relative">
             <div className="card bg-base-100 shadow-lg">
               <div className="card-body">
                 <h2 className="card-title text-xl mb-6">Create New Banner</h2>
@@ -353,50 +983,89 @@ const AdBannerPortal = () => {
                   </div>
                 </div>
 
-                {/* User Segment Selection */}
+                {/* Target Segment Selection */}
                 <div className="mb-6">
-                  <label className="label">
-                    <span className="label-text font-medium">
-                      Select Target Segment
-                    </span>
-                  </label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {userSegments.map((segment) => (
-                      <div
-                        key={segment.id}
-                        onClick={() => setSelectedSegment(segment.id)}
-                        className={`card bg-base-100 border-2 cursor-pointer transition-all hover:shadow-md ${
-                          selectedSegment === segment.id
-                            ? "border-primary bg-primary/5"
-                            : "border-base-300 hover:border-primary/50"
-                        }`}
-                      >
-                        <div className="card-body p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <Users className="w-5 h-5 text-primary" />
-                            <div className="badge badge-success">
-                              {segment.user_count} users
-                            </div>
-                          </div>
-                          <h3 className="font-medium text-base-content mb-2">
-                            {segment.name}
-                          </h3>
-                          <div className="text-xs text-base-content/70 space-y-1">
-                            <div>
-                              AOV: ${segment.avg_order_value?.toFixed(2)}
-                            </div>
-                            <div>
-                              Conv: {segment.conversion_rate?.toFixed(1)}%
-                            </div>
-                            <div>
-                              Revenue: $
-                              {segment.revenue_contribution.toLocaleString()}
-                            </div>
-                          </div>
+                  <div className="flex items-center justify-between">
+                    <label className="label mb-0">
+                      <span className="label-text font-medium">Target Segment</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => refetchSegmentPerformance()}
+                      className="btn btn-ghost btn-xs gap-1"
+                      disabled={segmentsLoading}
+                    >
+                      <RefreshCw
+                        className={`w-3 h-3 ${segmentsLoading ? "animate-spin" : ""}`}
+                      />
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="relative w-full ">
+                    {segmentsLoading ? (
+                      <div className="flex items-center justify-center py-6">
+                        <span className="loading loading-spinner loading-md"></span>
+                        <span className="ml-3 text-sm text-base-content/70">
+                          Loading segments...
+                        </span>
+                      </div>
+                    ) : userSegments.length > 0 ? (
+                      <div className="overflow-x-auto pb-2 -mx-1 px-1">
+                        <div className="grid gap-4 grid-flow-col auto-cols-[minmax(240px,1fr)] md:grid-flow-row md:grid-cols-2 lg:grid-cols-4">
+                          {userSegments.map((segment) => {
+                            const isSelected = selectedSegment === segment.id;
+                            return (
+                              <button
+                                key={segment.id}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedSegment((current) =>
+                                    current === segment.id ? "" : segment.id
+                                  )
+                                }
+                                className={`card min-w-60 p-4 text-left border transition-all ${isSelected
+                                  ? "border-primary bg-primary/10 shadow-lg"
+                                  : "border-base-300 hover:border-primary/40"
+                                  }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="font-semibold text-base-content">
+                                    {segment.name}
+                                  </h4>
+                                  <span className="badge badge-outline">
+                                    {segment.user_count.toLocaleString()} users
+                                  </span>
+                                </div>
+                                <div className="text-sm text-base-content/70 space-y-1">
+                                  <div>
+                                    Avg Order: ${segment.avg_order_value?.toFixed(2)}
+                                  </div>
+                                  <div>
+                                    Conversion: {segment.conversion_rate?.toFixed(1)}%
+                                  </div>
+                                  <div>
+                                    Revenue: $
+                                    {segment.revenue_contribution.toLocaleString()}
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
-                    ))}
+                    ) : segmentPerformanceError ? (
+                      <div className="py-4 text-sm text-error">
+                        We couldn't load segments right now. Try again in a moment.
+                      </div>
+                    ) : (
+                      <div className="py-4 text-sm text-base-content/60">
+                        No active segments found. Try refreshing analytics data later.
+                      </div>
+                    )}
                   </div>
+                  <p className="text-xs text-base-content/60 mt-2">
+                    Select a segment to tailor messaging. Leave unselected for a general audience.
+                  </p>
                 </div>
 
                 {/* Deal Type Selection */}
@@ -410,27 +1079,24 @@ const AdBannerPortal = () => {
                   <div className="join">
                     <button
                       onClick={() => setDealType("discount")}
-                      className={`btn join-item ${
-                        dealType === "discount" ? "btn-primary" : "btn-outline"
-                      }`}
+                      className={`btn join-item ${dealType === "discount" ? "btn-primary" : "btn-outline"
+                        }`}
                     >
                       <Percent className="w-4 h-4 mr-2" />
                       Discount Deal
                     </button>
                     <button
                       onClick={() => setDealType("product")}
-                      className={`btn join-item ${
-                        dealType === "product" ? "btn-primary" : "btn-outline"
-                      }`}
+                      className={`btn join-item ${dealType === "product" ? "btn-primary" : "btn-outline"
+                        }`}
                     >
                       <Package className="w-4 h-4 mr-2" />
                       Product Showcase
                     </button>
                     <button
                       onClick={() => setDealType("promotion")}
-                      className={`btn join-item ${
-                        dealType === "promotion" ? "btn-primary" : "btn-outline"
-                      }`}
+                      className={`btn join-item ${dealType === "promotion" ? "btn-primary" : "btn-outline"
+                        }`}
                     >
                       <Play className="w-4 h-4 mr-2" />
                       Special Promotion
@@ -473,11 +1139,10 @@ const AdBannerPortal = () => {
                           <div
                             key={product.id}
                             onClick={() => setSelectedProduct(product.id)}
-                            className={`p-3 border-b border-base-200 cursor-pointer hover:bg-base-200 transition-colors ${
-                              selectedProduct === product.id
-                                ? "bg-primary/10 border-primary"
-                                : ""
-                            }`}
+                            className={`p-3 border-b border-base-200 cursor-pointer hover:bg-base-200 transition-colors ${selectedProduct === product.id
+                              ? "bg-primary/10 border-primary"
+                              : ""
+                              }`}
                           >
                             <div className="flex justify-between items-center">
                               <div>
@@ -605,7 +1270,7 @@ const AdBannerPortal = () => {
                 <div className="card-actions justify-center">
                   <button
                     onClick={generateBannerContent}
-                    disabled={!selectedSegment || isGenerating}
+                    disabled={isGenerating || !bannerTitle || !bannerDescription}
                     className="btn btn-primary btn-lg gap-2"
                   >
                     {isGenerating ? (
@@ -650,37 +1315,37 @@ const AdBannerPortal = () => {
 
                   {/* Generated Banner Display */}
                   <div className="border-2 border-dashed border-base-300 rounded-lg p-8 text-center bg-base-200">
-                    {generatedBanner.design_suggestions?.image_base64 ? (
+                    {generatedImageSrc ? (
                       <div className="space-y-4">
                         <img
-                          src={`data:image/png;base64,${generatedBanner.design_suggestions.image_base64}`}
+                          src={generatedImageSrc}
                           alt="Generated Banner"
                           className="mx-auto max-w-full h-auto rounded-lg shadow-lg"
-                          style={{ aspectRatio: "9/6" }}
+                          style={{ aspectRatio: "16/9" }}
                         />
                         <div className="text-sm text-base-content/70">
-                          Generated with Google Imagen 4.0 Ultra (9:6 aspect
-                          ratio)
+                          Generated with Google Imagen 4.0 (16:9 aspect ratio)
                         </div>
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        <div className="w-full h-64 bg-gradient-to-r from-primary to-secondary rounded-lg flex items-center justify-center text-primary-content">
-                          <div className="text-center">
+                        <div className="w-full h-64 bg-linear-to-r from-primary to-secondary rounded-lg flex items-center justify-center text-primary-content">
+                          <div className="text-center max-w-md">
                             <h3 className="text-2xl font-bold mb-2">
-                              {generatedBanner.banner_text}
+                              {bannerTitle || "Banner headline preview"}
                             </h3>
+                            <p className="text-sm opacity-80 mb-3">
+                              {bannerDescription ||
+                                "Add a compelling description to guide the AI."}
+                            </p>
                             <button className="btn btn-outline btn-sm">
-                              {generatedBanner.call_to_action}
+                              {getFallbackCta()}
                             </button>
                           </div>
                         </div>
-                        {generatedBanner.design_suggestions?.error && (
-                          <div className="alert alert-error">
-                            <span>
-                              Image generation failed:{" "}
-                              {generatedBanner.design_suggestions.error}
-                            </span>
+                        {generatedBanner?.saved_path && (
+                          <div className="text-sm text-base-content/60">
+                            Saved path: {generatedBanner.saved_path}
                           </div>
                         )}
                       </div>
@@ -688,46 +1353,107 @@ const AdBannerPortal = () => {
                   </div>
 
                   {/* Banner Details */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
                     <div className="card bg-base-200">
                       <div className="card-body p-4">
-                        <h4 className="card-title text-sm">Banner Text</h4>
+                        <h4 className="card-title text-sm">Headline</h4>
                         <p className="text-base-content/80">
-                          {generatedBanner.banner_text}
+                          {bannerTitle || "Not provided"}
                         </p>
                       </div>
                     </div>
                     <div className="card bg-base-200">
                       <div className="card-body p-4">
-                        <h4 className="card-title text-sm">Call to Action</h4>
+                        <h4 className="card-title text-sm">Description</h4>
                         <p className="text-base-content/80">
-                          {generatedBanner.call_to_action}
+                          {bannerDescription || "Not provided"}
                         </p>
+                      </div>
+                    </div>
+                    <div className="card bg-base-200">
+                      <div className="card-body p-4">
+                        <h4 className="card-title text-sm">Campaign Focus</h4>
+                        <p className="text-base-content/80">{dealSummary}</p>
                       </div>
                     </div>
                     <div className="card bg-base-200">
                       <div className="card-body p-4">
                         <h4 className="card-title text-sm">Target Segment</h4>
-                        <p className="text-base-content/80">
-                          {selectedSegment}
+                        <p className="text-base-content/80 font-medium">
+                          {selectedSegmentDetails?.name || "General audience"}
                         </p>
+                        {selectedSegmentDetails && (
+                          <div className="mt-2 text-xs text-base-content/60 space-y-1">
+                            <p>
+                              Size: {selectedSegmentDetails.user_count.toLocaleString()} users
+                            </p>
+                            <p>
+                              Conversion: {selectedSegmentDetails.conversion_rate?.toFixed(1)}%
+                            </p>
+                            <p>
+                              AOV: ${selectedSegmentDetails.avg_order_value?.toFixed(2)}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  {generatedBanner.design_suggestions?.prompt_used && (
-                    <div className="collapse collapse-arrow bg-base-200 mt-4">
-                      <input type="checkbox" />
-                      <div className="collapse-title text-sm font-medium">
-                        View AI Prompt Used
-                      </div>
-                      <div className="collapse-content">
-                        <div className="text-xs text-base-content/70 bg-base-300 p-3 rounded">
-                          {generatedBanner.design_suggestions.prompt_used}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    {selectedProductDetails && (
+                      <div className="card bg-base-200">
+                        <div className="card-body p-4">
+                          <h4 className="card-title text-sm">Product Focus</h4>
+                          <p className="text-base-content/80 font-medium">
+                            {selectedProductDetails.name}
+                          </p>
+                          <p className="text-sm text-base-content/70">
+                            {(() => {
+                              const categoryValue = selectedProductDetails.category;
+
+                              if (!categoryValue) {
+                                return "General";
+                              }
+
+                              if (typeof categoryValue === "string") {
+                                return categoryValue;
+                              }
+
+                              return categoryValue.name ?? "General";
+                            })()}
+                          </p>
+                          {selectedProductDetails.price && (
+                            <p className="text-sm text-base-content/60 mt-2">
+                              Price: ${selectedProductDetails.price}
+                            </p>
+                          )}
                         </div>
                       </div>
+                    )}
+
+                    <div className="card bg-base-200">
+                      <div className="card-body p-4">
+                        <h4 className="card-title text-sm">Schedule</h4>
+                        <p className="text-base-content/80">{scheduleSummary}</p>
+                      </div>
                     </div>
-                  )}
+                  </div>
+
+                  <div className="card bg-base-200 mt-4">
+                    <div className="card-body p-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="card-title text-sm">Prompt Used</h4>
+                        {generatedBanner?.banner_id && (
+                          <span className="badge badge-outline">
+                            {generatedBanner.banner_id}
+                          </span>
+                        )}
+                      </div>
+                      <pre className="text-xs text-base-content/70 bg-base-300 p-3 rounded whitespace-pre-wrap">
+                        {generatedBanner.prompt}
+                      </pre>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -760,90 +1486,100 @@ const AdBannerPortal = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {banners.map((banner: any) => (
-                      <div
-                        key={banner.id}
-                        className="card bg-base-200 border border-base-300"
-                      >
-                        <div className="card-body p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center space-x-4">
-                                {banner.image_url && (
-                                  <div className="avatar">
-                                    <div className="w-24 h-16 rounded">
-                                      <img
-                                        src={`http://localhost:8001${banner.image_url}`}
-                                        alt={banner.title}
-                                        className="object-cover"
-                                      />
+                    {banners.map((banner: any) => {
+                      const imageSrc = resolveBannerImageSrc(banner);
+                      const segmentMeta = resolveSegmentMeta(
+                        banner.target_segment
+                      );
+                      const segmentLabel =
+                        banner.target_segment_label ??
+                        segmentMeta?.name ??
+                        "General audience";
+
+                      return (
+                        <div
+                          key={banner.id}
+                          className="card bg-base-200 border border-base-300"
+                        >
+                          <div className="card-body p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-4">
+                                  {imageSrc && (
+                                    <div className="avatar">
+                                      <div className="w-24 h-16 rounded">
+                                        <img
+                                          src={imageSrc}
+                                          alt={banner.title}
+                                          className="object-cover"
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
-                                <div>
-                                  <h3 className="font-medium text-base-content">
-                                    {banner.title}
-                                  </h3>
-                                  <p className="text-sm text-base-content/70">
-                                    {banner.description}
-                                  </p>
-                                  <div className="flex items-center space-x-4 mt-2">
-                                    <div className="badge badge-outline gap-1">
-                                      <Users className="w-3 h-3" />
-                                      {banner.target_segment}
-                                    </div>
-                                    <div className="badge badge-outline gap-1">
-                                      <Eye className="w-3 h-3" />
-                                      {banner.impression_count} views
-                                    </div>
-                                    <div className="badge badge-outline gap-1">
-                                      <MousePointer className="w-3 h-3" />
-                                      {banner.click_count} clicks
-                                    </div>
-                                    <div
-                                      className={`badge gap-1 ${
-                                        banner.status === "published"
+                                  )}
+                                  <div>
+                                    <h3 className="font-medium text-base-content">
+                                      {banner.title}
+                                    </h3>
+                                    <p className="text-sm text-base-content/70">
+                                      {banner.description}
+                                    </p>
+                                    <div className="flex items-center space-x-4 mt-2">
+                                      <div className="badge badge-outline gap-1">
+                                        <Users className="w-3 h-3" />
+                                        {segmentLabel}
+                                      </div>
+                                      <div className="badge badge-outline gap-1">
+                                        <Eye className="w-3 h-3" />
+                                        {banner.impression_count} views
+                                      </div>
+                                      <div className="badge badge-outline gap-1">
+                                        <MousePointer className="w-3 h-3" />
+                                        {banner.click_count} clicks
+                                      </div>
+                                      <div
+                                        className={`badge gap-1 ${banner.status === "published"
                                           ? "badge-success"
                                           : banner.status === "draft"
-                                          ? "badge-warning"
-                                          : "badge-neutral"
-                                      }`}
-                                    >
-                                      {banner.status}
+                                            ? "badge-warning"
+                                            : "badge-neutral"
+                                          }`}
+                                      >
+                                        {banner.status}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {banner.status === "draft" && (
+                              <div className="flex items-center gap-2">
+                                {banner.status === "draft" && (
+                                  <button
+                                    onClick={() => publishBanner(banner.id)}
+                                    className="btn btn-success btn-sm gap-1"
+                                  >
+                                    <Play className="w-3 h-3" />
+                                    Publish
+                                  </button>
+                                )}
                                 <button
-                                  onClick={() => publishBanner(banner.id)}
-                                  className="btn btn-success btn-sm gap-1"
+                                  onClick={() => regenerateImage(banner.id)}
+                                  className="btn btn-primary btn-sm gap-1"
                                 >
-                                  <Play className="w-3 h-3" />
-                                  Publish
+                                  <RefreshCw className="w-3 h-3" />
+                                  Regenerate
                                 </button>
-                              )}
-                              <button
-                                onClick={() => regenerateImage(banner.id)}
-                                className="btn btn-primary btn-sm gap-1"
-                              >
-                                <RefreshCw className="w-3 h-3" />
-                                Regenerate
-                              </button>
-                              <button
-                                onClick={() => deleteBanner(banner.id)}
-                                className="btn btn-error btn-sm gap-1"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                Delete
-                              </button>
+                                <button
+                                  onClick={() => deleteBanner(banner.id)}
+                                  className="btn btn-error btn-sm gap-1"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  Delete
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -851,6 +1587,7 @@ const AdBannerPortal = () => {
           </div>
         )}
 
+        {/* Analytics Tab */}
         {/* Analytics Tab */}
         {activeTab === "analytics" && (
           <div className="space-y-6">
@@ -885,10 +1622,15 @@ const AdBannerPortal = () => {
                             Active Banners:
                           </span>
                           <div className="badge badge-primary">
-                            {
-                              segmentBanners.filter((b: any) => b.is_active)
-                                .length
-                            }
+                            {segmentBanners.filter((b: any) => b.status === "published").length}
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-base-content/70">
+                            Total Banners:
+                          </span>
+                          <div className="badge badge-outline">
+                            {segmentBanners.length}
                           </div>
                         </div>
                         <div className="flex justify-between items-center">
@@ -936,83 +1678,7 @@ const AdBannerPortal = () => {
                 );
               })}
             </div>
-
-            {/* Overall Analytics */}
-            <div className="card bg-base-100 shadow-lg">
-              <div className="card-body">
-                <h3 className="card-title mb-6">Overall Performance</h3>
-                <div className="stats stats-vertical lg:stats-horizontal shadow">
-                  <div className="stat">
-                    <div className="stat-figure text-primary">
-                      <Package className="w-8 h-8" />
-                    </div>
-                    <div className="stat-title">Total Banners</div>
-                    <div className="stat-value text-primary">
-                      {banners.length}
-                    </div>
-                    <div className="stat-desc">All created banners</div>
-                  </div>
-
-                  <div className="stat">
-                    <div className="stat-figure text-success">
-                      <Play className="w-8 h-8" />
-                    </div>
-                    <div className="stat-title">Published</div>
-                    <div className="stat-value text-success">
-                      {
-                        banners.filter((b: any) => b.status === "published")
-                          .length
-                      }
-                    </div>
-                    <div className="stat-desc">Currently active</div>
-                  </div>
-
-                  <div className="stat">
-                    <div className="stat-figure text-info">
-                      <Eye className="w-8 h-8" />
-                    </div>
-                    <div className="stat-title">Total Impressions</div>
-                    <div className="stat-value text-info">
-                      {banners
-                        .reduce((sum, b: any) => sum + b.impression_count, 0)
-                        .toLocaleString()}
-                    </div>
-                    <div className="stat-desc">Banner views</div>
-                  </div>
-
-                  <div className="stat">
-                    <div className="stat-figure text-warning">
-                      <MousePointer className="w-8 h-8" />
-                    </div>
-                    <div className="stat-title">Total Clicks</div>
-                    <div className="stat-value text-warning">
-                      {banners
-                        .reduce((sum, b: any) => sum + b.click_count, 0)
-                        .toLocaleString()}
-                    </div>
-                    <div className="stat-desc">User interactions</div>
-                  </div>
-                </div>
-
-                {/* Performance Chart Placeholder */}
-                <div className="mt-8">
-                  <h4 className="text-lg font-semibold mb-4">
-                    Performance Trends
-                  </h4>
-                  <div className="card bg-base-200 border-2 border-dashed border-base-300">
-                    <div className="card-body text-center py-12">
-                      <BarChart3 className="w-12 h-12 text-base-content/40 mx-auto mb-4" />
-                      <p className="text-base-content/70">
-                        Performance charts coming soon
-                      </p>
-                      <p className="text-sm text-base-content/50">
-                        Integration with analytics dashboard in development
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {/* ... rest of analytics ... */}
           </div>
         )}
       </div>

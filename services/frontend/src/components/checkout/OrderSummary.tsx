@@ -1,5 +1,6 @@
 import { CreditCard, Package, Tag, Truck } from "lucide-react";
 import { PriceDisplay } from "../common/PriceDisplay";
+import { resolveProductImage } from "@/utils/media";
 
 interface OrderItem {
   product: {
@@ -49,7 +50,7 @@ export const OrderSummary: React.FC<OrderSummaryProps> = ({
         {items.map((item) => (
           <div key={item.product.id} className="flex space-x-3">
             <img
-              src={item.product?.images?.[0] || "/api/placeholder/60/60"}
+              src={resolveProductImage(item.product?.images, "/api/placeholder/60/60")}
               alt={item.product?.name || "Product"}
               className="w-12 h-12 object-cover rounded"
             />

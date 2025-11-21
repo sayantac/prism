@@ -1,5 +1,6 @@
 """Marketing and banner endpoints."""
 import base64
+import json
 import logging
 import os
 import uuid
@@ -10,6 +11,7 @@ from dateutil import parser
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_superuser as get_current_active_superuser, get_current_active_user, get_db
@@ -20,6 +22,51 @@ from app.services.llm_service import LLMService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _load_banner_image_base64(image_ref: Optional[str]) -> Optional[str]:
+    """Load a banner image and return base64 string without data URI prefix."""
+    if not image_ref:
+        return None
+
+    if image_ref.startswith("data:image"):
+        # Already a data URI, strip the prefix if present
+        if "," in image_ref:
+            return image_ref.split(",", 1)[1]
+        return image_ref
+
+    # Treat as filesystem path relative to project root
+    normalized_path = image_ref.lstrip("/")
+    file_path = os.path.join(os.getcwd(), normalized_path)
+
+    if not os.path.exists(file_path):
+        logger.warning("Banner image file missing for path: %s", file_path)
+        return None
+
+    try:
+        with open(file_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode("utf-8")
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to encode banner image %s: %s", file_path, exc)
+        return None
+
+
+def _extract_segment_label(metadata_raw: Optional[str]) -> Optional[str]:
+    """Extract a human readable segment label from stored metadata."""
+    if not metadata_raw:
+        return None
+
+    try:
+        metadata = json.loads(metadata_raw)
+    except (TypeError, ValueError):
+        return None
+
+    if isinstance(metadata, dict):
+        label = metadata.get("target_segment_label")
+        if isinstance(label, str):
+            return label
+
+    return None
 
 
 # ==================== Pydantic Schemas ====================
@@ -130,8 +177,8 @@ async def generate_ai_banner(
             output_path=output_path,
             aspect_ratio=request.aspect_ratio
         )
-        
-        logger.info(f"Banner generation result: {result}")
+
+        logger.info(f"Banner generation result: {result.get('filenames')}")
 
         if not result.get("success"):
             raise HTTPException(
@@ -141,8 +188,8 @@ async def generate_ai_banner(
 
         return {
             "banner_id": banner_id,
-            "image_base64": result.get("image_base64"),
-            "saved_path": result.get("filename"),
+            "image_base64": result.get("images_base64"),
+            "saved_path": result.get("filenames"),
             "prompt": request.prompt,
             "product_id": request.product_id
         }
@@ -412,4 +459,44 @@ async def get_user_banners(
     return {
         "user_id": user_id,
         "banners": banner_list
+    }
+
+@router.get("/banners/published")
+async def get_published_banners(
+    limit: int = 10,
+    db: Session = Depends(get_db),
+):
+    """Return currently active published banners for storefront surfaces."""
+    now = datetime.utcnow()
+
+    banners_query = (
+        db.query(AdBanner)
+        .filter(AdBanner.status.in_(["active", "published"]))
+        .filter(or_(AdBanner.start_time == None, AdBanner.start_time <= now))
+        .filter(or_(AdBanner.end_time == None, AdBanner.end_time >= now))
+        .order_by(AdBanner.updated_at.desc())
+        .limit(limit)
+    )
+
+    published_banners: List[Dict[str, Any]] = []
+
+    for banner in banners_query.all():
+        image_base64 = _load_banner_image_base64(banner.image_url)
+
+        published_banners.append(
+            {
+                "id": str(banner.id),
+                "image_base64": image_base64,
+                "image_url": banner.image_url,
+                "product_id": str(banner.product_id) if banner.product_id else None,
+                "product_category": banner.deal_type,
+                "target_segment": banner.target_segment,
+                "target_segment_label": _extract_segment_label(banner.deal_data),
+                "starts_at": banner.start_time.isoformat() + "Z" if banner.start_time else None,
+                "ends_at": banner.end_time.isoformat() + "Z" if banner.end_time else None,
+            }
+        )
+
+    return {
+        "banners": published_banners
     }

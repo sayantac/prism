@@ -22,10 +22,11 @@ from app.middleware import (
 from app.models import Base
 from app.services.system_health_service import SystemMonitor
 from app.utils.logging_config import setup_logging
-# from app.services.ml_engine_service import MLEngineService
+from app.services.ml_engine_service import MLEngineService
 
 settings = get_settings()
 
+os.makedirs("generated_banners", exist_ok=True)
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -44,8 +45,8 @@ async def lifespan(app: FastAPI):
     try:
         # init_db(db)  # Commented out - database is restored from dump
         await _init_default_admin_settings(db)
-        # ml_engine = MLEngineService(db)
-        # ml_engine.train_all_models()
+        ml_engine = MLEngineService(db)
+        ml_engine.train_all_models()
         # ml_engine.train_model(model_type="als", model_name="default_als_model")
     finally:
         db.close()
@@ -111,6 +112,11 @@ app.add_middleware(PerformanceMonitoringMiddleware)
 # Static Files
 # ============================================================================
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount(
+    "/generated_banners",
+    StaticFiles(directory="generated_banners"),
+    name="generated-banners",
+)
 
 
 # @app.middleware("http")

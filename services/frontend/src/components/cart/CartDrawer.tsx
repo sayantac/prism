@@ -15,6 +15,7 @@ import type { RootState } from "@/store";
 import { EmptyState } from "../common/EmptyState";
 import { PriceDisplay } from "../common/PriceDisplay";
 import { Button } from "../ui/Button";
+import { resolveProductImage } from "@/utils/media";
 
 export const CartDrawer: React.FC = () => {
   const dispatch = useDispatch();
@@ -118,7 +119,7 @@ export const CartDrawer: React.FC = () => {
                       className="flex space-x-3 pb-4 border-b border-base-300 last:border-b-0"
                     >
                       <img
-                        src={item.product.images[0] || "/placeholder.jpg"}
+                        src={resolveProductImage(item.product.images, "/placeholder.jpg")}
                         alt={item.product.name}
                         className="w-16 h-16 object-cover rounded-lg"
                       />

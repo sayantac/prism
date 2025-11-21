@@ -100,10 +100,10 @@ class CompleteEcomDataMigrator:
                 session.commit()
 
             # 10. Create user segments (separate transaction)
-            logger.info("Step 10: Creating user segments...")
-            with self.Session() as session:
-                self._create_user_segments(session)
-                session.commit()
+            # logger.info("Step 10: Creating user segments...")
+            # with self.Session() as session:
+            #     self._create_user_segments(session)
+            #     session.commit()
 
             logger.info("✅ Data migration completed successfully!")
 
@@ -234,7 +234,7 @@ class CompleteEcomDataMigrator:
                     "id": admin_id,
                     "username": admin_username,
                     "email": admin_email,
-                    "hashed_password": "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewAlDWVWGlhwDZZy",  # password123
+                    "hashed_password": "$2b$12$Iy5njesJ9WYwWctcsHbXtOhYys4OH8ybcHNFi3abWQqQCoQZMW1hS",  # password123
                     "first_name": admin_first_name,
                     "last_name": admin_last_name,
                     "is_active": True,
@@ -1489,93 +1489,93 @@ class CompleteEcomDataMigrator:
 
         logger.info("✅ Created/verified ML model configurations")
 
-    def _create_user_segments(self, session):
-        """Create user segments"""
-        logger.info("Creating user segments...")
+    # def _create_user_segments(self, session):
+    #     """Create user segments"""
+    #     logger.info("Creating user segments...")
 
-        segments = [
-            {
-                "name": "High Value Customers",
-                "description": "Customers with high lifetime value",
-                "segment_type": "rfm",
-                "criteria": {
-                    "monetary_amount": {"min": 500, "max": None},
-                    "frequency_orders": {"min": 3, "max": None},
-                    "recency_days": {"min": 0, "max": 90},
-                },
-            },
-            {
-                "name": "Electronics Enthusiasts",
-                "description": "Users who frequently buy electronics",
-                "segment_type": "behavioral",
-                "criteria": {
-                    "categories": ["Electronics"],
-                    "min_purchases": 2,
-                    "days_back": 180,
-                },
-            },
-            {
-                "name": "Bargain Hunters",
-                "description": "Price-sensitive customers",
-                "segment_type": "purchase_based",
-                "criteria": {
-                    "avg_order_value": {"max": 50},
-                    "discount_usage": {"min": 0.7},
-                },
-            },
-            {
-                "name": "Young Adults",
-                "description": "Users aged 18-35",
-                "segment_type": "demographic",
-                "criteria": {"age_range": {"min": 18, "max": 35}},
-            },
-            {
-                "name": "At Risk Customers",
-                "description": "Customers who might churn",
-                "segment_type": "rfm",
-                "criteria": {
-                    "recency_days": {"min": 120, "max": None},
-                    "frequency_orders": {"min": 1, "max": None},
-                },
-            },
-        ]
+    #     segments = [
+    #         {
+    #             "name": "High Value Customers",
+    #             "description": "Customers with high lifetime value",
+    #             "segment_type": "rfm",
+    #             "criteria": {
+    #                 "monetary_amount": {"min": 500, "max": None},
+    #                 "frequency_orders": {"min": 3, "max": None},
+    #                 "recency_days": {"min": 0, "max": 90},
+    #             },
+    #         },
+    #         {
+    #             "name": "Electronics Enthusiasts",
+    #             "description": "Users who frequently buy electronics",
+    #             "segment_type": "behavioral",
+    #             "criteria": {
+    #                 "categories": ["Electronics"],
+    #                 "min_purchases": 2,
+    #                 "days_back": 180,
+    #             },
+    #         },
+    #         {
+    #             "name": "Bargain Hunters",
+    #             "description": "Price-sensitive customers",
+    #             "segment_type": "purchase_based",
+    #             "criteria": {
+    #                 "avg_order_value": {"max": 50},
+    #                 "discount_usage": {"min": 0.7},
+    #             },
+    #         },
+    #         {
+    #             "name": "Young Adults",
+    #             "description": "Users aged 18-35",
+    #             "segment_type": "demographic",
+    #             "criteria": {"age_range": {"min": 18, "max": 35}},
+    #         },
+    #         {
+    #             "name": "At Risk Customers",
+    #             "description": "Customers who might churn",
+    #             "segment_type": "rfm",
+    #             "criteria": {
+    #                 "recency_days": {"min": 120, "max": None},
+    #                 "frequency_orders": {"min": 1, "max": None},
+    #             },
+    #         },
+    #     ]
 
-        for segment in segments:
-            # Check if exists
-            existing = session.execute(
-                text("SELECT id FROM user_segments WHERE name = :name"),
-                {"name": segment["name"]}
-            ).fetchone()
-            if existing:
-                logger.info(f"User segment '{segment['name']}' already exists")
-                continue
+    #     for segment in segments:
+    #         # Check if exists
+    #         existing = session.execute(
+    #             text("SELECT id FROM user_segments WHERE name = :name"),
+    #             {"name": segment["name"]}
+    #         ).fetchone()
+    #         if existing:
+    #             logger.info(f"User segment '{segment['name']}' already exists")
+    #             continue
 
-            segment_id = str(uuid.uuid4())
+    #         segment_id = str(uuid.uuid4())
 
-            session.execute(
-                text("""
-                INSERT INTO user_segments (
-                    id, name, description, segment_type, criteria,
-                    is_active, auto_update, member_count, created_at
-                ) VALUES (
-                    :id, :name, :description, :segment_type, :criteria,
-                    :is_active, :auto_update, :member_count, :created_at
-                )
-            """),
-                {
-                    "id": segment_id,
-                    "name": segment["name"],
-                    "description": segment["description"],
-                    "segment_type": segment["segment_type"],
-                    "criteria": json.dumps(segment["criteria"]),
-                    "is_active": True,
-                    "auto_update": True,
-                    "member_count": 0,  # Will be calculated later
-                    "created_at": datetime.now(),
-                },
-            )
+    #         session.execute(
+    #             text("""
+    #             INSERT INTO user_segments (
+    #                 id, name, description, segment_type, criteria,
+    #                 is_active, auto_update, member_count, created_at
+    #             ) VALUES (
+    #                 :id, :name, :description, :segment_type, :criteria,
+    #                 :is_active, :auto_update, :member_count, :created_at
+    #             )
+    #         """),
+    #             {
+    #                 "id": segment_id,
+    #                 "name": segment["name"],
+    #                 "description": segment["description"],
+    #                 "segment_type": segment["segment_type"],
+    #                 "criteria": json.dumps(segment["criteria"]),
+    #                 "is_active": True,
+    #                 "auto_update": True,
+    #                 "member_count": 0,  # Will be calculated later
+    #                 "created_at": datetime.now(),
+    #             },
+    #         )
 
-        logger.info(f"✅ Created/verified {len(segments)} user segments")
+    #     logger.info(f"✅ Created/verified {len(segments)} user segments")
 
     def _generate_summary(self, session):
         """Generate migration summary"""

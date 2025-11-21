@@ -31,7 +31,10 @@ export const SearchPage: React.FC = () => {
       max_price: filters.max_price ? Number(filters.max_price) : undefined,
       ...(currentUser && { session_id: currentUser.id }), // Only add session_id if user is logged in
       page: currentPage,
-      limit: 20,
+      size: 20,
+      sort_by: filters.sort || "relevance",
+      sort_order: "desc",
+      use_vector_search: true,
     },
     {
       skip: !query,

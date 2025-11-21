@@ -27,6 +27,7 @@ import {
   useGetMlConfigsQuery,
   useGetRevenueDataQuery,
   useGetSegmentPerformanceQuery,
+  useGetSegmentPerformanceAnalyticsQuery,
   useGetSystemStatusQuery,
   useGetUserActivityDataQuery
 } from "@/store/api/adminApi";
@@ -50,6 +51,95 @@ import {
 } from "recharts";
 import type { ValueType } from "recharts/types/component/DefaultTooltipContent";
 import {UserBehaviorSummary} from "../admin/dashboard/UserBehaviorSummary";
+
+const normalizeNumericValue = (value: unknown): number => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === "string") {
+    const cleaned = value.trim();
+    if (!cleaned) {
+      return 0;
+    }
+
+    const parsed = Number(cleaned.replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+
+  return 0;
+};
+
+const normalizePercentageValue = (value: unknown): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+
+    if (value >= -1 && value <= 1) {
+      return value * 100;
+    }
+
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const match = trimmed.match(/-?\d+(?:\.\d+)?/);
+    if (!match) {
+      return null;
+    }
+
+    const parsed = Number(match[0]);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+
+    if (trimmed.includes("%")) {
+      return parsed;
+    }
+
+    if (parsed >= -1 && parsed <= 1) {
+      return parsed * 100;
+    }
+
+    return parsed;
+  }
+
+  return null;
+};
+
+const deriveConversionRate = (
+  rawValues: unknown[],
+  ordersCount: number,
+  memberCount: number
+): number => {
+  for (const value of rawValues) {
+    const normalized = normalizePercentageValue(value);
+    if (normalized !== null) {
+      return normalized;
+    }
+  }
+
+  if (memberCount > 0) {
+    const computed = (ordersCount / memberCount) * 100;
+    return Number.isFinite(computed) ? computed : 0;
+  }
+
+  return 0;
+};
 // Helper component for explanations
 interface ChartExplanationProps {
   title: string;
@@ -104,6 +194,161 @@ const UserSegmentChart = ({ className = "" }) => {
     refetch,
   } = useGetSegmentPerformanceQuery({});
 
+  const {
+    data: segmentPerformanceAnalytics,
+    isLoading: analyticsLoading,
+    refetch: refetchAnalytics,
+  } = useGetSegmentPerformanceAnalyticsQuery({});
+
+  const combinedSegments = useMemo(() => {
+    const baseSegments = Array.isArray(segmentPerformance)
+      ? segmentPerformance
+      : [];
+    const analyticsSegments = Array.isArray(segmentPerformanceAnalytics)
+      ? segmentPerformanceAnalytics
+      : [];
+
+    const normalizeKey = (value?: string) =>
+      (value ?? "")
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    const analyticsByKey = new Map<string, any>();
+    analyticsSegments.forEach((segment) => {
+      const key = normalizeKey(segment?.segment_name ?? segment?.name);
+      if (!key) {
+        return;
+      }
+      analyticsByKey.set(key, segment);
+    });
+
+    const merged: any[] = baseSegments.map((segment: any) => {
+      const key = normalizeKey(segment?.segment_name ?? segment?.name);
+      const analytics = analyticsByKey.get(key);
+
+      const userCount = normalizeNumericValue(
+        segment?.user_count ??
+          segment?.member_count ??
+          analytics?.member_count ??
+          analytics?.user_count ??
+          0
+      );
+
+      const ordersCount = normalizeNumericValue(
+        analytics?.orders_count ??
+          segment?.orders_count ??
+          segment?.order_count ??
+          analytics?.order_count ??
+          0
+      );
+
+      const totalRevenue = normalizeNumericValue(
+        analytics?.total_revenue ??
+          segment?.total_revenue ??
+          segment?.revenue_contribution ??
+          0
+      );
+
+      const avgOrderValue = normalizeNumericValue(
+        analytics?.avg_order_value ?? segment?.avg_order_value ?? 0
+      );
+
+      const conversionRate = deriveConversionRate(
+        [
+          segment?.conversion_rate,
+          segment?.conversionRate,
+          analytics?.conversion_rate,
+          analytics?.conversionRate,
+        ],
+        ordersCount,
+        userCount
+      );
+
+      return {
+        ...segment,
+        segment_id:
+          segment?.segment_id ?? segment?.id ?? analytics?.segment_id ?? key,
+        segment_name:
+          segment?.segment_name ??
+          segment?.name ??
+          analytics?.segment_name ??
+          analytics?.name ??
+          "Unnamed Segment",
+        user_count: userCount,
+        member_count: userCount,
+        orders_count: ordersCount,
+        avg_order_value: avgOrderValue,
+        conversion_rate: conversionRate,
+        total_revenue: totalRevenue,
+        revenue_per_member: normalizeNumericValue(
+          analytics?.revenue_per_member ?? segment?.revenue_per_member ?? 0
+        ),
+      };
+    });
+
+    const knownKeys = new Set(merged.map((segment) => normalizeKey(segment?.segment_name)));
+
+    analyticsSegments.forEach((segment) => {
+      const key = normalizeKey(segment?.segment_name ?? segment?.name);
+      if (!key || knownKeys.has(key)) {
+        return;
+      }
+
+      const userCount = normalizeNumericValue(
+        segment?.member_count ?? segment?.user_count ?? 0
+      );
+
+      const ordersCount = normalizeNumericValue(
+        segment?.orders_count ?? segment?.order_count ?? 0
+      );
+
+      const totalRevenue = normalizeNumericValue(segment?.total_revenue ?? 0);
+
+      const avgOrderValue = normalizeNumericValue(segment?.avg_order_value ?? 0);
+
+      const conversionRate = deriveConversionRate(
+        [segment?.conversion_rate, segment?.conversionRate],
+        ordersCount,
+        userCount
+      );
+
+      merged.push({
+        segment_id: segment?.segment_id ?? segment?.id ?? key,
+        segment_name: segment?.segment_name ?? segment?.name ?? "Unnamed Segment",
+        user_count: userCount,
+        member_count: userCount,
+        description: segment?.description ?? "No description available.",
+        created_at: segment?.created_at ?? null,
+        is_active: userCount > 0,
+        orders_count: ordersCount,
+        avg_order_value: avgOrderValue,
+        conversion_rate: conversionRate,
+        total_revenue: totalRevenue,
+        revenue_per_member: normalizeNumericValue(
+          segment?.revenue_per_member ?? 0
+        ),
+      });
+    });
+
+    merged.sort(
+      (a, b) => (b?.user_count ?? 0) - (a?.user_count ?? 0)
+    );
+
+    return merged;
+  }, [segmentPerformance, segmentPerformanceAnalytics]);
+
+  const { activeSegments, inactiveSegments } = useMemo(() => {
+    if (!combinedSegments.length) {
+      return { activeSegments: [], inactiveSegments: [] };
+    }
+
+    const active = combinedSegments.filter((segment) => (segment.user_count ?? 0) > 0);
+    const inactive = combinedSegments.filter((segment) => (segment.user_count ?? 0) === 0);
+
+    return { activeSegments: active, inactiveSegments: inactive };
+  }, [combinedSegments]);
+
   const COLORS = [
     "#10b981",
     "#3b82f6",
@@ -115,24 +360,6 @@ const UserSegmentChart = ({ className = "" }) => {
     "#84cc16",
   ];
 
-  // Separate active and inactive segments
-  const { activeSegments, inactiveSegments } = useMemo(() => {
-    if (!segmentPerformance)
-      return { activeSegments: [], inactiveSegments: [] };
-
-    const active = segmentPerformance.filter(
-      (seg) => (seg.user_count || 0) > 0
-    );
-    const inactive = segmentPerformance.filter(
-      (seg) => (seg.user_count || 0) === 0
-    );
-
-    return {
-      activeSegments: active,
-      inactiveSegments: inactive,
-    };
-  }, [segmentPerformance]);
-
   // Segments to display based on toggle
   const displayedSegments = showInactiveSegments
     ? [...activeSegments, ...inactiveSegments]
@@ -143,7 +370,79 @@ const UserSegmentChart = ({ className = "" }) => {
     0
   );
 
-  if (isLoading) {
+  const totalSegments = combinedSegments.length;
+
+  const largestSegment = activeSegments.reduce<any | null>(
+    (prev, current) => {
+      if (!prev) {
+        return current;
+      }
+      return (prev.user_count ?? 0) > (current.user_count ?? 0)
+        ? prev
+        : current;
+    },
+    activeSegments[0] ?? null
+  );
+
+  const averageSegmentSize = activeSegments.length
+    ? Math.round(totalUsers / activeSegments.length)
+    : 0;
+
+  const totalRevenue = activeSegments.reduce(
+    (sum, seg) => sum + normalizeNumericValue(seg.total_revenue ?? 0),
+    0
+  );
+
+  const { weightedRate, totalWeight } = activeSegments.reduce(
+    (acc, seg) => {
+      const users = normalizeNumericValue(seg.user_count ?? seg.member_count ?? 0);
+      if (!users) {
+        return acc;
+      }
+
+      const rate = normalizePercentageValue(seg.conversion_rate);
+      if (rate === null) {
+        return acc;
+      }
+
+      acc.totalWeight += users;
+      acc.weightedRate += rate * users;
+      return acc;
+    },
+    { weightedRate: 0, totalWeight: 0 }
+  );
+
+  const averageConversionRate = totalWeight ? weightedRate / totalWeight : 0;
+
+  const averageOrderValue = activeSegments.length
+    ? activeSegments.reduce(
+        (sum, seg) => sum + normalizeNumericValue(seg.avg_order_value ?? 0),
+        0
+      ) / activeSegments.length
+    : 0;
+
+  const topRevenueSegment = activeSegments.reduce<any | null>(
+    (prev, current) => {
+      if (!prev) {
+        return current;
+      }
+      return (Number(prev.total_revenue ?? 0) > Number(current.total_revenue ?? 0))
+        ? prev
+        : current;
+    },
+    activeSegments[0] ?? null
+  );
+
+  const formatCurrency = (value: number) =>
+    `$${Number(value ?? 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
+  const formatPercent = (value: number) =>
+    `${Number.isFinite(value) ? value.toFixed(1) : "0.0"}%`;
+
+  if (isLoading || analyticsLoading) {
     return (
       <div className="flex items-center justify-center h-[400px]">
         <div className="loading loading-spinner loading-lg text-primary"></div>
@@ -151,7 +450,7 @@ const UserSegmentChart = ({ className = "" }) => {
     );
   }
 
-  if (!segmentPerformance?.length) {
+  if (!combinedSegments.length) {
     return (
       <div className="w-full border border-base-300 rounded-lg p-8 text-center">
         <Users className="w-12 h-12 text-base-content/30 mx-auto mb-4" />
@@ -159,7 +458,13 @@ const UserSegmentChart = ({ className = "" }) => {
           No Segment Data
         </h3>
         <p className="text-base-content/50">No user segment data available.</p>
-        <button onClick={refetch} className="btn btn-primary btn-sm mt-4">
+        <button
+          onClick={() => {
+            refetch();
+            refetchAnalytics();
+          }}
+          className="btn btn-primary btn-sm mt-4"
+        >
           Refresh Data
         </button>
       </div>
@@ -215,7 +520,7 @@ const UserSegmentChart = ({ className = "" }) => {
       </div>
 
       {/* Stats Summary - Only Active Segments */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         <div className="stat bg-primary/10 rounded-lg p-3 border border-primary/20">
           <div className="stat-title text-xs flex items-center gap-1">
             <Users className="w-3 h-3" />
@@ -224,9 +529,7 @@ const UserSegmentChart = ({ className = "" }) => {
           <div className="stat-value text-primary text-lg">
             {activeSegments.length}
           </div>
-          <div className="stat-desc text-xs">
-            of {segmentPerformance.length} total
-          </div>
+          <div className="stat-desc text-xs">of {totalSegments} total</div>
         </div>
 
         <div className="stat bg-success/10 rounded-lg p-3 border border-success/20">
@@ -246,15 +549,11 @@ const UserSegmentChart = ({ className = "" }) => {
             Largest Segment
           </div>
           <div className="stat-value text-info text-lg">
-            {activeSegments.length > 0
-              ? activeSegments.reduce((prev, current) =>
-                  (prev.user_count || 0) > (current.user_count || 0)
-                    ? prev
-                    : current
-                ).user_count
-              : 0}
+            {largestSegment?.user_count?.toLocaleString() ?? 0}
           </div>
-          <div className="stat-desc text-xs">users</div>
+          <div className="stat-desc text-xs">
+            {largestSegment?.segment_name?.replace(/_/g, " ") ?? "N/A"}
+          </div>
         </div>
 
         <div className="stat bg-warning/10 rounded-lg p-3 border border-warning/20">
@@ -263,11 +562,31 @@ const UserSegmentChart = ({ className = "" }) => {
             Avg Segment Size
           </div>
           <div className="stat-value text-warning text-lg">
-            {activeSegments.length > 0
-              ? Math.round(totalUsers / activeSegments.length)
-              : 0}
+            {averageSegmentSize.toLocaleString()}
           </div>
           <div className="stat-desc text-xs">users per segment</div>
+        </div>
+
+        <div className="stat bg-secondary/10 rounded-lg p-3 border border-secondary/20">
+          <div className="stat-title text-xs flex items-center gap-1">
+            <TrendingUp className="w-3 h-3" />
+            Avg Conversion
+          </div>
+          <div className="stat-value text-secondary text-lg">
+            {formatPercent(averageConversionRate)}
+          </div>
+          <div className="stat-desc text-xs">across active segments</div>
+        </div>
+
+        <div className="stat bg-accent/10 rounded-lg p-3 border border-accent/20">
+          <div className="stat-title text-xs flex items-center gap-1">
+            <DollarSign className="w-3 h-3" />
+            Segment Revenue
+          </div>
+          <div className="stat-value text-accent text-lg">
+            {formatCurrency(totalRevenue)}
+          </div>
+          <div className="stat-desc text-xs">total from active segments</div>
         </div>
       </div>
 
@@ -395,15 +714,17 @@ const UserSegmentChart = ({ className = "" }) => {
                 <tr>
                   <th className="text-left">Segment</th>
                   <th className="text-center">Users</th>
-                  <th className="text-left">Description</th>
-                  <th className="text-center">Created</th>
+                  <th className="text-center">Orders</th>
+                  <th className="text-center">Avg Order Value</th>
+                  <th className="text-center">Conversion Rate</th>
+                  <th className="text-center">Revenue</th>
                   <th className="text-center">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {displayedSegments.map((segment, index) => (
                   <tr
-                    key={segment.segment_id}
+                    key={segment.segment_id ?? segment.segment_name ?? index}
                     className={segment.user_count === 0 ? "opacity-60" : ""}
                   >
                     <td>
@@ -433,15 +754,23 @@ const UserSegmentChart = ({ className = "" }) => {
                         {segment.user_count?.toLocaleString() || 0}
                       </span>
                     </td>
-                    <td className="text-left">
-                      <span className="text-sm text-base-content/70">
-                        {segment.description}
-                      </span>
+                    <td className="text-center">
+                      {normalizeNumericValue(segment.orders_count ?? 0).toLocaleString()}
                     </td>
                     <td className="text-center">
-                      <span className="text-xs text-base-content/50">
-                        {new Date(segment.created_at).toLocaleDateString()}
-                      </span>
+                      {formatCurrency(normalizeNumericValue(segment.avg_order_value ?? 0))}
+                    </td>
+                    <td className="text-center">
+                      {formatPercent(
+                        (normalizePercentageValue(segment.conversion_rate) ?? 0)
+                      )}
+                    </td>
+                    <td className="text-center font-semibold text-success">
+                      {formatCurrency(
+                        normalizeNumericValue(
+                          segment.total_revenue ?? segment.revenue_contribution ?? 0
+                        )
+                      )}
                     </td>
                     <td className="text-center">
                       <span
@@ -469,34 +798,39 @@ const UserSegmentChart = ({ className = "" }) => {
             <Info className="w-4 h-4 text-primary" />
             Segment Insights
           </h4>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-xs">
             <div>
-              <strong>Largest Active Segment:</strong>{" "}
-              {activeSegments
-                .reduce((prev, current) =>
-                  (prev.user_count || 0) > (current.user_count || 0)
-                    ? prev
-                    : current
-                )
-                .segment_name.replace(/_/g, " ")}{" "}
-              (
-              {
-                activeSegments.reduce((prev, current) =>
-                  (prev.user_count || 0) > (current.user_count || 0)
-                    ? prev
-                    : current
-                ).user_count
-              }{" "}
-              users)
+              <strong>Largest Active Segment:</strong> {" "}
+              {largestSegment?.segment_name?.replace(/_/g, " ") ?? "N/A"} (
+              {largestSegment?.user_count?.toLocaleString() ?? 0} users)
             </div>
             <div>
-              <strong>Total Coverage:</strong> {totalUsers.toLocaleString()}{" "}
-              users across {activeSegments.length} segments
+              <strong>Total Coverage:</strong> {totalUsers.toLocaleString()} users across {activeSegments.length} segments
             </div>
             <div>
-              <strong>Inactive Segments:</strong> {inactiveSegments.length}{" "}
-              segments with 0 users
-              {inactiveSegments.length > 0 && " (may need review)"}
+              <strong>Highest Revenue Segment:</strong> {" "}
+              {topRevenueSegment?.segment_name?.replace(/_/g, " ") ?? "N/A"} (
+              {formatCurrency(
+                normalizeNumericValue(topRevenueSegment?.total_revenue ?? 0)
+              )})
+            </div>
+            <div>
+              <strong>Average Conversion:</strong> {formatPercent(averageConversionRate)} • <strong>Avg Order Value:</strong> {formatCurrency(averageOrderValue)}
+            </div>
+            <div>
+              <strong>Revenue per Member:</strong> {formatCurrency(
+                activeSegments.length
+                  ? activeSegments.reduce(
+                      (sum, seg) =>
+                        sum + normalizeNumericValue(seg.revenue_per_member ?? 0),
+                      0
+                    ) / activeSegments.length
+                  : 0
+              )}
+            </div>
+            <div>
+              <strong>Inactive Segments:</strong> {inactiveSegments.length} segments with 0 users
+              {inactiveSegments.length > 0 && " (review recommended)"}
             </div>
           </div>
         </div>
@@ -1222,7 +1556,7 @@ const RecommendationPerformanceAnalytics = ({ className = "" }) => {
     refetch,
   } = useGetAdminDashboardQuery({ days: 90 });
 
-  const { data: revenueData } = useGetUserActivityDataQuery();
+  // const { data: revenueData } = useGetUserActivityDataQuery();
 
   const { data: mlConfigs } = useGetMlConfigsQuery({});
 
@@ -1877,7 +2211,9 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
       const isValidDate = !Number.isNaN(date.getTime());
 
       return {
-        date: isValidDate ? date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : item.date,
+        date: isValidDate
+          ? date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+          : item.date,
         fullDate: item.date,
         revenue: Number(item.revenue) || 0,
       };
@@ -1911,8 +2247,8 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
 
     return {
       percent: percentChange,
-      direction: change > 0 ? "up" : change < 0 ? "down" : "neutral" as const,
-    };
+      direction: change > 0 ? "up" : change < 0 ? "down" : "neutral",
+    } as const;
   }, [chartData]);
 
   const formatCurrency = (value: ValueType) =>
@@ -2008,11 +2344,9 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
               <TrendingDown className="w-3 h-3 text-error" />
             )}
             <span>
-              {revenueGrowth.direction === "up"
-                ? "vs previous 7 days"
-                : revenueGrowth.direction === "down"
-                ? "vs previous 7 days"
-                : "No change vs previous 7 days"}
+              {revenueGrowth.direction === "neutral"
+                ? "No change vs previous 7 days"
+                : "vs previous 7 days"}
             </span>
           </div>
         </div>
@@ -2020,31 +2354,33 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
 
       <div className="card bg-base-100 border border-base-300 shadow-lg">
         <div className="card-body">
-          <div className="flex items-center justify-between mb-4">
-            {/* <h3 className="font-semibold text-lg flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-success" />
-              90-Day Revenue Trend
-            </h3>
-            <span className="text-xs text-base-content/60">
-              Showing last {chartData.length} day{chartData.length === 1 ? "" : "s"}
-            </span> */}
-          </div>
-
           {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={276}>
-              <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 10 }}>
+              <ComposedChart
+                data={chartData}
+                margin={{ top: 10, right: 30, left: 0, bottom: 10 }}
+              >
                 <defs>
                   <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
                     <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
-                <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#64748b" }} angle={-35} textAnchor="end" height={60} />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="#e2e8f0"
+                  strokeOpacity={0.5}
+                />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 12, fill: "#64748b" }}
+                  angle={-35}
+                  textAnchor="end"
+                  height={60}
+                />
                 <YAxis
                   tick={{ fontSize: 12, fill: "#64748b" }}
                   tickFormatter={(value) => `$${Math.round(value).toLocaleString()}`}
-                  label={{ value: "", angle: -90, position: "insideLeft", offset: 10 }}
                 />
                 <Tooltip
                   contentStyle={{
@@ -2053,12 +2389,19 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
                     borderRadius: "8px",
                     boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                   }}
-                  formatter={(value: ValueType, name: string) => {
-                    return [`$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, "Revenue"];
-                  }}
+                  formatter={(value: ValueType) => [
+                    formatCurrency(value),
+                    "Revenue",
+                  ]}
                   labelFormatter={(label) => `Date: ${label}`}
                 />
-                <Area type="monotone" dataKey="revenue" fill="url(#revenueGradient)" stroke="none" name="revenue" />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  fill="url(#revenueGradient)"
+                  stroke="none"
+                  name="Revenue"
+                />
                 <Line
                   type="monotone"
                   dataKey="revenue"
@@ -2066,7 +2409,7 @@ const RevenueChart = ({ timeRange = "30d", className = "" }) => {
                   strokeWidth={3}
                   dot={false}
                   activeDot={{ r: 4, strokeWidth: 0, fill: "#10b981" }}
-                  name="revenue"
+                  name="Revenue"
                 />
               </ComposedChart>
             </ResponsiveContainer>
@@ -2107,11 +2450,9 @@ const UserActivityChart = ({ className = "" }) => {
 
     const activeUsers = dashboardData.users.active || 0;
     const newUsersCount = dashboardData.users.new || 0;
-    const totalUsers = dashboardData.users.total || 0;
+    const totalUsers = dashboardData.users.total || dashboardData.users.total_users || 0;
     const retentionRate =
-      dashboardData.users.retention_rate ??
-      dashboardData.users.retention ??
-      0;
+      dashboardData.users.retention_rate ?? dashboardData.users.retention ?? 0;
 
     const dailyTrend = Array.isArray(dashboardData.users.daily_trend)
       ? dashboardData.users.daily_trend
@@ -2208,7 +2549,7 @@ const UserActivityChart = ({ className = "" }) => {
       <div className="card bg-base-100 border border-base-300 shadow-lg">
         <div className="card-body">
           {hasDailyData ? (
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={270}>
               <BarChart data={dailyChartData} barSize={40}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.35} />
                 <XAxis
@@ -2248,16 +2589,8 @@ const UserActivityChart = ({ className = "" }) => {
                     return value;
                   }}
                 />
-                <Bar
-                  dataKey="newUsers"
-                  stackId="users"
-                  fill="#22c55e"
-                />
-                <Bar
-                  dataKey="returningUsers"
-                  stackId="users"
-                  fill="#3b82f6"
-                />
+                <Bar dataKey="newUsers" stackId="users" fill="#22c55e" />
+                <Bar dataKey="returningUsers" stackId="users" fill="#3b82f6" />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -2271,7 +2604,6 @@ const UserActivityChart = ({ className = "" }) => {
               </div>
             </div>
           )}
-
         </div>
       </div>
     </div>

@@ -1,10 +1,12 @@
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { env } from "@/config";
 import { Button } from "../ui/Button";
 
 interface Banner {
   id: string;
-  image_base64: string;
+  image_base64?: string;
+  image_url?: string;
   product_id?: string;
   product_category?: string;
   priority?: number;
@@ -25,6 +27,7 @@ export const BannerDisplay: React.FC<BannerDisplayProps> = ({
 }) => {
   const [currentBanner, setCurrentBanner] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
+  const apiBaseUrl = useMemo(() => env.apiBaseUrl.replace(/\/$/, ""), []);
 
   useEffect(() => {
     if (!autoSlide || banners.length <= 1) return;
@@ -42,12 +45,51 @@ export const BannerDisplay: React.FC<BannerDisplayProps> = ({
 
   const currentBannerData = banners[currentBanner];
 
+  const resolveImageSrc = (banner: Banner) => {
+    if (!banner) return "";
+
+    if (banner.image_base64) {
+      const trimmed = banner.image_base64.trim();
+      if (trimmed.startsWith("data:image")) {
+        return trimmed;
+      }
+      return `data:image/jpeg;base64,${trimmed}`;
+    }
+
+    if (banner.image_url) {
+      const trimmedUrl = banner.image_url.trim();
+
+      if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
+        return trimmedUrl;
+      }
+
+      if (trimmedUrl.startsWith("data:image")) {
+        return trimmedUrl;
+      }
+
+      const normalizedPath = trimmedUrl.replace(/^\/+/, "");
+      if (apiBaseUrl) {
+        return `${apiBaseUrl}/${normalizedPath}`;
+      }
+
+      return `/${normalizedPath}`;
+    }
+
+    return "";
+  };
+
+  const imageSrc = resolveImageSrc(currentBannerData);
+
+  if (!imageSrc) {
+    return null;
+  }
+
   return (
     <div
       className={`relative w-full h-full rounded-lg overflow-hidden ${className}`}
     >
       <img
-        src={`data:image/jpeg;base64,${currentBannerData.image_base64}`}
+        src={imageSrc}
         alt="Personalized Banner"
         className="w-full h-full object-cover"
       />
