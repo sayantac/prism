@@ -11,3 +11,4 @@ export * from './api';
 export * from './storage';
 export * from './dom';
 export * from './errorHandling';
+export * from './media';

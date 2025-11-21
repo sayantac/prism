@@ -32,7 +32,7 @@ export const PriceDisplay: React.FC<PriceDisplayProps> = ({
   return (
     <div className={twMerge("flex items-center space-x-2", className)}>
       <span
-        className={twMerge("font-semibold text-primary", sizeClasses[size])}
+        className={twMerge("font-semibold text-xs whitespace-nowrap text-primary", sizeClasses[size])}
       >
         $ {price?.toFixed(2)}
       </span>

@@ -11,6 +11,7 @@ import { setQuickViewProduct } from "@/store/slices/uiSlice";
 import { PriceDisplay } from "../common/PriceDisplay";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
+import { resolveProductImage } from "@/utils/media";
 
 interface SponsoredProduct {
   id: string;
@@ -47,9 +48,7 @@ export const SponsoredProductCard: React.FC<SponsoredProductCardProps> = ({
 
   // Extract first valid image URL (exclude transparent pixel placeholder)
   const getFirstImage = () => {
-    const images = product.images.split("|");
-    const validImage = images.find((url) => !url.includes("transparent-pixel"));
-    return validImage || "/placeholder-product.jpg";
+    return resolveProductImage(product.images, "/placeholder-product.jpg");
   };
 
   // Parse price (remove $ sign and convert to number)

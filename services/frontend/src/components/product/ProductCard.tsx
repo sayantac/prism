@@ -11,6 +11,7 @@ import { setQuickViewProduct } from "../../store/slices/uiSlice";
 import { PriceDisplay } from "../common/PriceDisplay";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
+import { resolveProductImage } from "@/utils/media";
 
 interface Product {
   id: string;
@@ -93,7 +94,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           {/* Product Image */}
           <div className="relative w-full h-48 bg-base-200 rounded-xl overflow-hidden">
             <img
-              src={product.images?.[0] || "/api/placeholder/300/200"}
+                src={resolveProductImage(product.images)}
               alt={product.name}
               className={`w-full h-full object-cover transition-all duration-300 ${
                 imageLoaded ? "opacity-100" : "opacity-0"

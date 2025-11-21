@@ -24,6 +24,7 @@ import { RecommendationSection } from "../../common/RecommendationSection";
 import { Badge } from "../../ui/Badge";
 import { Button } from "../../ui/Button";
 import { Loading } from "../../ui/Loading";
+import { resolveMediaUrl } from "@/utils/media";
 
 export const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -115,15 +116,17 @@ export const ProductDetail: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
           {/* Product Images */}
           <div>
-            <ImageGallery 
+            <ImageGallery
               images={
                 Array.isArray(product.images)
-                  ? product.images.map(img => 
-                      typeof img === 'string' ? img : img.url
-                    )
+                  ? product.images
+                      .map((img) =>
+                        typeof img === "string" ? resolveMediaUrl(img) : resolveMediaUrl(img?.url)
+                      )
+                      .filter((src): src is string => Boolean(src))
                   : []
-              } 
-              alt={product.name} 
+              }
+              alt={product.name}
             />
           </div>
 

@@ -1,26 +1,36 @@
-import type { Category } from "@/types";
 import { apiSlice } from "./apiSlice";
+import type { Category } from "@/types";
+type GenerateContentMode = "description" | "title" | "seo" | "all";
 
-type ProductContentMode = "description" | "title" | "seo" | "all";
-
-interface GenerateProductContentArgs {
-  mode: ProductContentMode;
-  product: {
-    name?: string;
-    brand?: string;
-    sku?: string;
-    category?: string;
-    context?: string;
-    language?: string;
-  };
+interface GenerateProductContentRequest {
+  mode: GenerateContentMode;
+  productName?: string;
+  brand?: string;
+  sku?: string;
+  category?: string;
+  context?: string;
+  language?: string;
   files?: File[];
 }
 
+interface GenerateProductContentResponse {
+  status: "ok" | "error";
+  message?: string;
+  mode?: GenerateContentMode;
+  content?: {
+    description?: string;
+    bullets?: string[];
+    title?: string;
+    seoTitle?: string;
+    seoMeta?: string;
+    seoKeywords?: string[];
+  };
+}
+
 interface FileUploadResponse {
-  filename: string;
-  url: string;
-  size: number;
-  content_type: string;
+  url?: string;
+  message?: string;
+  [key: string]: unknown;
 }
 
 export const adminApi = apiSlice.injectEndpoints({
@@ -32,6 +42,10 @@ export const adminApi = apiSlice.injectEndpoints({
       providesTags: ["Analytics"],
       keepUnusedDataFor: 60, // 1 minute for quick stats
     }),
+    getProductCategories: builder.query<Category[], void>({
+      query: () => "/admin/products/categories",
+      providesTags: ["Category"],
+    }),
     // Comprehensive Dashboard - Full metrics with date range
     getAdminDashboard: builder.query({
       query: (params = { days: 30 }) => ({
@@ -40,11 +54,17 @@ export const adminApi = apiSlice.injectEndpoints({
       }),
       transformResponse: (response: any) => {
         // Transform API response to match component expectations
+        const retentionRate =
+          response.users?.retention_rate ?? response.users?.retention ?? 0;
+        const totalUsers =
+          response.users?.total_users ?? response.users?.total ?? 0;
+
         return {
           ...response,
           revenue: {
             total: response.orders?.total_revenue || 0,
             trend: response.orders?.daily_trend || [],
+            daily_trend: response.orders?.daily_trend || [],
             daily_average: response.orders?.average_order_value || 0,
           },
           orders: {
@@ -52,15 +72,21 @@ export const adminApi = apiSlice.injectEndpoints({
             average: response.orders?.average_order_value || 0,
             status: response.orders?.status_breakdown || {},
             trend: response.orders?.daily_trend || [],
+            daily_trend: response.orders?.daily_trend || [],
+            payment_methods: response.orders?.payment_method_breakdown || {},
+            recommendation_sources:
+              response.orders?.recommendation_source_breakdown || {},
           },
           users: {
             active: response.users?.active_users || 0,
             new: response.users?.new_users || 0,
-            retention: response.users?.retention_rate || 0,
-            retention_rate: response.users?.retention_rate || 0,
+            retention: retentionRate,
+            retention_rate: retentionRate,
+            total: totalUsers,
+            total_users: totalUsers,
             with_addresses: response.users?.users_with_addresses || 0,
-            with_viewed_products: response.users?.users_with_viewed_products || 0,
-            total: response.users?.total_users || 0,
+            with_viewed_products:
+              response.users?.users_with_viewed_products || 0,
             daily_trend: response.users?.daily_trend || [],
           },
           products: response.products || {},
@@ -108,28 +134,12 @@ export const adminApi = apiSlice.injectEndpoints({
     }),
 
     // Products Management
-    getProductCategories: builder.query<Category[], void>({
-      query: () => "/admin/products/categories",
-      providesTags: ["Category"],
-    }),
     getAdminProducts: builder.query({
       query: (params = {}) => ({
         url: "/admin/products/products",
         params,
       }),
       providesTags: ["Product"],
-    }),
-    uploadProductImage: builder.mutation<FileUploadResponse, File>({
-      query: (file) => {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        return {
-          url: "/products/upload-image",
-          method: "POST",
-          body: formData,
-        };
-      },
     }),
     createProduct: builder.mutation({
       query: (productData) => ({
@@ -154,17 +164,44 @@ export const adminApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["Product"],
     }),
-
-    generateProductContent: builder.mutation({
-      query: ({ mode, product, files }: GenerateProductContentArgs) => {
+    generateProductContent: builder.mutation<
+      GenerateProductContentResponse,
+      GenerateProductContentRequest
+    >({
+      query: ({
+        mode,
+        productName,
+        brand,
+        sku,
+        category,
+        context,
+        language,
+        files,
+      }) => {
         const formData = new FormData();
         formData.append("mode", mode);
-        formData.append("product_name", product.name ?? "");
-        formData.append("brand", product.brand ?? "");
-        formData.append("sku", product.sku ?? "");
-        formData.append("category", product.category ?? "");
-        formData.append("context", product.context ?? "");
-        formData.append("language", product.language ?? "English");
+
+        if (productName) {
+          formData.append("product_name", productName);
+        }
+
+        if (brand) {
+          formData.append("brand", brand);
+        }
+
+        if (sku) {
+          formData.append("sku", sku);
+        }
+
+        if (category) {
+          formData.append("category", category);
+        }
+
+        if (context) {
+          formData.append("context", context);
+        }
+
+        formData.append("language", language ?? "English");
 
         files?.forEach((file) => {
           formData.append("files", file);
@@ -269,20 +306,12 @@ export const adminApi = apiSlice.injectEndpoints({
       providesTags: ["UserSegment", "Analytics"],
       keepUnusedDataFor: 600,
       transformResponse: (response: any) => {
-        const segments = Array.isArray(response)
-          ? response
-          : Array.isArray(response?.segments)
-          ? response.segments
-          : [];
+        if (Array.isArray(response)) {
+          return response;
+        }
 
-        return segments.map((segment: any) => ({
-          segment_name: segment?.segment_name ?? segment?.segment ?? "Unknown Segment",
-          member_count: segment?.member_count ?? segment?.user_count ?? 0,
-          orders_count: segment?.orders_count ?? segment?.order_count ?? 0,
-          avg_order_value: segment?.avg_order_value ?? segment?.average_order_value ?? 0,
-          total_revenue: segment?.total_revenue ?? segment?.revenue ?? 0,
-          revenue_per_member: segment?.revenue_per_member ?? segment?.member_revenue ?? 0,
-        }));
+        const segments = response?.segments;
+        return Array.isArray(segments) ? segments : [];
       },
     }),
     getRevenueData: builder.query({
@@ -382,47 +411,6 @@ export const adminApi = apiSlice.injectEndpoints({
       query: () => "/admin/user-segmentation/segments",
       providesTags: ["UserSegment"],
       keepUnusedDataFor: 600,
-      transformResponse: (response: any) => {
-        const segments = Array.isArray(response)
-          ? response
-          : response?.data ?? [];
-
-        if (!Array.isArray(segments)) {
-          return [];
-        }
-
-        return segments.map((segment: any) => {
-          const normalizedName =
-            segment?.name ??
-            segment?.segment_name ??
-            segment?.segmentName ??
-            segment?.id ??
-            "Untitled Segment";
-
-          const normalizedId =
-            segment?.id ??
-            segment?.segment_id ??
-            segment?.segmentId ??
-            normalizedName;
-
-          const memberCount =
-            segment?.member_count ??
-            segment?.user_count ??
-            segment?.actual_size ??
-            segment?.size ??
-            0;
-
-          return {
-            ...segment,
-            id: normalizedId,
-            segment_id: segment?.segment_id ?? normalizedId,
-            segment_name: segment?.segment_name ?? normalizedName,
-            name: normalizedName,
-            user_count: segment?.user_count ?? memberCount,
-            member_count: memberCount,
-          };
-        });
-      },
     }),
     createUserSegment: builder.mutation({
       query: (segmentData) => ({
@@ -475,6 +463,18 @@ export const adminApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["UserSegment"],
     }),
+    uploadProductImage: builder.mutation<FileUploadResponse, File>({
+      query: (file) => {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        return {
+          url: "/products/upload-image",
+          method: "POST",
+          body: formData,
+        };
+      },
+    }),
     generateRfmSegments: builder.mutation({
       query: (params = { n_clusters: 5, lookback_days: 365 }) => ({
         url: "/admin/user-segmentation/segments/generate-rfm",
@@ -499,9 +499,7 @@ export const {
   useGetRecentActivityQuery,
 
   // Products
-  useGetProductCategoriesQuery,
   useGetAdminProductsQuery,
-  useUploadProductImageMutation,
   useCreateProductMutation,
   useUpdateProductMutation,
   useDeleteProductMutation,
@@ -549,4 +547,6 @@ export const {
   useAddUserToSegmentMutation,
   useRemoveUserFromSegmentMutation,
   useGenerateRfmSegmentsMutation,
+  useGetProductCategoriesQuery,
+  useUploadProductImageMutation
 } = adminApi;

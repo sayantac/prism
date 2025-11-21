@@ -4,8 +4,9 @@ import { Edit, Eye, MoreHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../ui/Button";
-import { DataTable } from "../../ui/admin/DataTable";
+import { DataTable } from "../ui";
 import { BulkActionBar } from "./BulkActionBar";
+import { resolveProductImage } from "@/utils/media";
 // import { BulkActionBar } from "./BulkActionBar";
 
 interface ProductTableProps {
@@ -71,7 +72,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
             <div className="avatar">
               <div className="mask mask-squircle w-12 h-12">
                 <img
-                  src={row.original.images[0]}
+                  src={resolveProductImage(row.original.images)}
                   alt={row.original.name}
                   className="object-cover"
                 />
@@ -199,7 +200,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
         columns={columns}
         loading={loading}
         searchPlaceholder="Search products..."
-        onRowClick={(product) => navigate(`/admin/products/${product.id}`)}
+  onRowClick={(product: any) => navigate(`/admin/products/${product.id}`)}
       />
     </div>
   );

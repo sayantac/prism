@@ -8,6 +8,7 @@ import {
 } from "../../store/api/cartApi";
 import { Button } from "../ui/Button";
 import { PriceDisplay } from "../common/PriceDisplay";
+import { resolveProductImage } from "@/utils/media";
 
 interface CartItemData {
   product: {
@@ -66,7 +67,10 @@ export const CartItem: React.FC<CartItemProps> = ({
     }
   };
 
-  const productImage = item.product?.images?.[0] || "/api/placeholder/80/80";
+  const productImage = resolveProductImage(
+    item.product?.images,
+    "/api/placeholder/80/80"
+  );
   const productName = item.product?.name || "Product";
 
   return (
@@ -74,7 +78,7 @@ export const CartItem: React.FC<CartItemProps> = ({
       className={`flex space-x-4 p-4 bg-base-100 rounded-lg border border-base-200 ${className}`}
     >
       {/* Product Image */}
-      <div className="flex-shrink-0">
+  <div className="shrink-0">
         {showProductLink ? (
           <Link to={`/products/${item.product.id}`}>
             <img
@@ -136,7 +140,7 @@ export const CartItem: React.FC<CartItemProps> = ({
               className="btn-square btn-xs"
             />
 
-            <span className="text-sm font-medium min-w-[2rem] text-center">
+            <span className="text-sm font-medium min-w-8 text-center">
               {quantity}
             </span>
 

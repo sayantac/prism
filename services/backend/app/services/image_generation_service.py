@@ -226,168 +226,124 @@ class ImageGenerationService:
         self,
         prompt: str,
         output_path: Optional[str] = None,
-        aspect_ratio: str = "1:1",
+        aspect_ratio: Optional[str] = None,
+        sample_count: int = 1,
         retries: int = 0,
     ) -> Dict[str, Any]:
         """
-        Generate image using Google Imagen API via AI Studio.
-
-        Uses Google AI Studio's Imagen API to generate high-quality marketing images
-        based on text prompts. Automatically saves images to local storage.
+        Generate image using Google Imagen 4 API (:predict endpoint).
 
         Args:
             prompt: Text prompt describing the desired image
-            output_path: Optional path to save the image
-            aspect_ratio: Image aspect ratio (e.g., "1:1", "16:9", "9:16")
-            retries: Number of retries if generation fails
-
-        Returns:
-            Dictionary with generation results:
-                - success: bool indicating success/failure
-                - image_base64: Base64 encoded image data (if successful)
-                - filename: Saved file path (if output_path provided)
-                - prompt_used: The prompt that was used
-                - error: Error message (if failed)
-
-        Example:
-            >>> service = ImageGenerationService()
-            >>> result = await service.generate_image(
-            ...     prompt="Professional product photo of wireless headphones",
-            ...     output_path="static/generated/headphones.png"
-            ... )
+            output_path: Optional path to save the image (PNG/JPG)
+            aspect_ratio: Optional aspect ratio (not directly supported in :predict, kept for compatibility)
+            sample_count: Number of images to generate
+            retries: Retry attempts on failure
         """
         if not self._initialized:
             return {
                 "success": False,
-                "error": "Google Gemini API not initialized. Please configure GOOGLE_API_KEY.",
+                "error": "Google API not initialized. Configure GOOGLE_API_KEY.",
                 "prompt_used": prompt,
             }
 
-        max_retries = retries or settings.MAX_IMAGE_GENERATION_RETRIES
+        model_name = getattr(settings, "GEMINI_IMAGE_MODEL", "imagen-4.0-generate-001")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:predict"
+        
+        print(url,"\n\n\n\n\n\n\n url",settings.GOOGLE_API_KEY)
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": settings.GOOGLE_API_KEY,
+        }
+
+        # Build payload similar to your working curl
+        parameters = {"sampleCount": sample_count}
+        if aspect_ratio:
+            parameters["aspectRatio"] = aspect_ratio  # optional future-proof param
+
+        payload = {
+            "instances": [{"prompt": prompt}],
+            "parameters": parameters,
+        }
+
+        max_retries = retries or getattr(settings, "MAX_IMAGE_GENERATION_RETRIES", 3)
 
         for attempt in range(max_retries):
             try:
-                logger.info(f"Generating image with Imagen API (attempt {attempt + 1}/{max_retries})")
-                logger.debug(f"Prompt: {prompt[:200]}...")
-
-                # Google AI Studio Imagen API endpoint
-                # Note: Imagen 3 is available via Google AI Studio API
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_IMAGE_MODEL}:generateImages"
-
-                headers = {
-                    "Content-Type": "application/json",
-                }
-
-                # Map aspect ratio to supported values
-                aspect_ratio_map = {
-                    "1:1": "1:1",
-                    "16:9": "16:9",
-                    "9:16": "9:16",
-                    "4:3": "4:3",
-                    "3:4": "3:4",
-                }
-                mapped_ratio = aspect_ratio_map.get(aspect_ratio, "1:1")
-
-                payload = {
-                    "prompt": prompt,
-                    "number_of_images": 1,
-                    "aspect_ratio": mapped_ratio,
-                    "safety_filter_level": "block_only_high",
-                    "person_generation": "allow_adult",
-                }
+                logger.info(f"Generating image via Imagen 4 API (attempt {attempt + 1}/{max_retries})")
 
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
                         url,
                         json=payload,
                         headers=headers,
-                        params={"key": settings.GOOGLE_API_KEY},
-                        timeout=aiohttp.ClientTimeout(total=60)
+                        timeout=aiohttp.ClientTimeout(total=90),
                     ) as response:
                         if response.status == 200:
                             result = await response.json()
 
-                            # Extract generated image
-                            if "generatedImages" in result and len(result["generatedImages"]) > 0:
-                                image_data = result["generatedImages"][0]
+                            predictions = result.get("predictions", [])
+                            if not predictions:
+                                return {
+                                    "success": False,
+                                    "error": "No predictions returned from Imagen 4 API.",
+                                    "prompt_used": prompt,
+                                }
 
-                                # Image is returned as base64 in 'imageBytes' field
-                                if "imageBytes" in image_data:
-                                    image_base64 = image_data["imageBytes"]
+                            images_base64 = []
+                            filenames = []
 
-                                    # Save to file if output path provided
-                                    saved_path = None
-                                    if output_path:
-                                        try:
-                                            # Create directory if needed
-                                            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                            for i, pred in enumerate(predictions):
+                                image_base64 = (
+                                    pred.get("bytesBase64Encoded")
+                                    or pred.get("imageBase64")
+                                    or None
+                                )
+                                if not image_base64:
+                                    logger.warning(f"Prediction {i} missing base64 data")
+                                    continue
 
-                                            # Decode and save
-                                            image_bytes = base64.b64decode(image_base64)
-                                            with open(output_path, "wb") as f:
-                                                f.write(image_bytes)
+                                images_base64.append(image_base64)
 
-                                            saved_path = output_path
-                                            logger.info(f"Image saved to: {saved_path}")
-                                        except Exception as save_error:
-                                            logger.error(f"Error saving image: {str(save_error)}")
+                                if output_path:
+                                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                                    base, ext = os.path.splitext(output_path)
+                                    file_path = f"{base}_{i + 1}{ext or '.png'}"
+                                    with open(file_path, "wb") as f:
+                                        f.write(base64.b64decode(image_base64))
+                                    filenames.append(file_path)
+                                    logger.info(f"Image saved to {file_path}")
+                            # print(images_base64[0:10],"\n\n\n\n\n\n\n images_base64")
+                            return {
+                                "success": True,
+                                "images_base64": images_base64,
+                                "filenames": filenames,
+                                "prompt_used": prompt,
+                            }
 
-                                    return {
-                                        "success": True,
-                                        "image_base64": image_base64,
-                                        "filename": saved_path,
-                                        "prompt_used": prompt,
-                                        "aspect_ratio": mapped_ratio,
-                                    }
-                                else:
-                                    logger.error("Response missing imageBytes field")
-                                    error_msg = "Invalid response format from Imagen API"
-                            else:
-                                logger.error("Response missing generatedImages field")
-                                error_msg = "No images generated by Imagen API"
                         else:
-                            error_text = await response.text()
-                            logger.error(f"Imagen API error ({response.status}): {error_text}")
-                            error_msg = f"API returned status {response.status}: {error_text[:200]}"
-
-                        # If we got here, there was an error
-                        if attempt < max_retries - 1:
-                            logger.info(f"Retrying image generation...")
-                            continue
-                        else:
+                            err_txt = await response.text()
+                            logger.error(f"Imagen 4 API error ({response.status}): {err_txt}")
+                            if attempt < max_retries - 1:
+                                continue
                             return {
                                 "success": False,
-                                "error": error_msg,
+                                "error": f"API returned {response.status}: {err_txt}",
                                 "prompt_used": prompt,
                             }
 
             except aiohttp.ClientError as e:
-                logger.error(
-                    f"Network error generating image (attempt {attempt + 1}/{max_retries}): {str(e)}",
-                    exc_info=True,
-                )
-                error_msg = f"Network error: {str(e)}"
+                logger.error(f"Network error during image generation: {e}")
+                if attempt == max_retries - 1:
+                    return {"success": False, "error": str(e), "prompt_used": prompt}
 
             except Exception as e:
-                logger.error(
-                    f"Error generating image (attempt {attempt + 1}/{max_retries}): {str(e)}",
-                    exc_info=True,
-                )
-                error_msg = str(e)
+                logger.error(f"Unexpected error generating image: {e}", exc_info=True)
+                if attempt == max_retries - 1:
+                    return {"success": False, "error": str(e), "prompt_used": prompt}
 
-            if attempt == max_retries - 1:
-                return {
-                    "success": False,
-                    "error": error_msg,
-                    "prompt_used": prompt,
-                }
-
-        return {
-            "success": False,
-            "error": "Max retries exceeded",
-            "prompt_used": prompt,
-        }
-
+        return {"success": False, "error": "Max retries exceeded", "prompt_used": prompt}
     async def generate_product_poster(
         self,
         product_name: str,

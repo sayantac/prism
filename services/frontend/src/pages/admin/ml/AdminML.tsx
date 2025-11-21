@@ -1,6 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // @ts-nocheck
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
@@ -16,15 +23,14 @@ import {
   Plus,
   RefreshCw,
   Save,
-  Settings,
   ShoppingCart,
+  Settings,
   Target,
   Trash2,
   TrendingUp,
   Users,
   X,
 } from "lucide-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -33,26 +39,30 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
   Tooltip,
-  XAxis,LineChart,Line,
+  XAxis,
   YAxis,
 } from "recharts";
 import {
+  useActivateMlConfigMutation,
+  useCreateUserSegmentMutation,
   useGetAdminDashboardQuery,
   useGetMlConfigsQuery,
   useGetModelPerformanceQuery,
   useGetRecommendationPerformanceQuery,
-  useGetSegmentPerformanceQuery,
   useGetSegmentPerformanceAnalyticsQuery,
-  useRecalculateSegmentMutation,
+  useGetSegmentPerformanceQuery,
   useGetSegmentUsersQuery,
-  useActivateMlConfigMutation,
-  useTrainModelsMutation,
   useGetUserSegmentsQuery,
+  useRecalculateSegmentMutation,
+  useTrainModelsMutation,
 } from "../../../store/api/adminApi";
+import { toast } from "react-hot-toast";
 
 // ML Model Management Component
 const MLModelManagement = () => {
@@ -126,8 +136,10 @@ const MLModelManagement = () => {
 
     const mapped = mlConfigs.map((model: any) => {
       const metrics = model.metrics ?? model.performance ?? {};
+      const overrides = modelOverrides[model.id] ?? {};
 
       const accuracy = coalesceNumber(
+        overrides.accuracy,
         model.accuracy,
         model.accuracy_score,
         metrics.accuracy,
@@ -135,6 +147,7 @@ const MLModelManagement = () => {
       );
 
       const precision = coalesceNumber(
+        overrides.precision,
         model.precision,
         model.precision_score,
         metrics.precision,
@@ -142,6 +155,7 @@ const MLModelManagement = () => {
       );
 
       const recall = coalesceNumber(
+        overrides.recall,
         model.recall,
         model.recall_score,
         metrics.recall,
@@ -149,118 +163,172 @@ const MLModelManagement = () => {
       );
 
       const f1Score =
-        coalesceNumber(model.f1_score, metrics.f1_score) ??
+        coalesceNumber(
+          overrides.f1_score,
+          model.f1_score,
+          metrics.f1_score
+        ) ??
         (precision !== null &&
-        recall !== null &&
-        precision + recall > 0
+          recall !== null &&
+          precision + recall > 0
           ? (2 * precision * recall) / (precision + recall)
           : null);
 
       const lastTrained = coalesceDate(
+        overrides.last_trained,
         model.last_trained,
         model.last_trained_at,
-        metrics.last_trained,
+        model.last_training_time,
+        model.latest_training_time,
         model.updated_at,
-        model.modified_at
+        metrics.last_trained,
+        metrics.lastTrained
       );
 
-      const overrides = modelOverrides?.[model.id] ?? {};
+      const modelId =
+        model.id ?? model.config_id ?? model.model_id ?? model.name;
+
+      const displayName =
+        model.model_name ?? model.name ?? model.model_type ?? modelId;
 
       return {
         ...model,
-        accuracy: overrides.accuracy ?? accuracy,
-        precision: overrides.precision ?? precision,
-        recall: overrides.recall ?? recall,
-        f1_score: overrides.f1_score ?? f1Score,
-        last_trained: overrides.last_trained ?? lastTrained,
+        id: modelId,
+        model_name: displayName,
+        model_type:
+          model.model_type ??
+          model.model_name ??
+          model.name ??
+          "Unknown Model",
+        is_active:
+          typeof overrides.is_active === "boolean"
+            ? overrides.is_active
+            : model.is_active ?? model.active ?? model.enabled ?? false,
+        training_status:
+          overrides.training_status ??
+          model.training_status ??
+          model.status ??
+          "idle",
+        accuracy,
+        precision,
+        recall,
+        f1_score: f1Score,
+        last_trained: lastTrained,
+        total_recommendations:
+          overrides.total_recommendations ??
+          metrics.total_recommendations ??
+          metrics.totalRecommendations ??
+          model.total_recommendations ??
+          0,
+        run_time:
+          overrides.run_time ??
+          metrics.run_time ??
+          metrics.runtime ??
+          model.run_time ??
+          null,
       };
     });
 
-    const order = modelOrderRef.current;
+    const sorted = [...mapped];
 
-    return mapped.sort((a, b) => {
-      const aIndex = order.indexOf(a.id);
-      const bIndex = order.indexOf(b.id);
+    if (modelOrderRef.current.length > 0) {
+      sorted.sort((a, b) => {
+        const order = modelOrderRef.current;
+        const indexA = order.indexOf(a.id);
+        const indexB = order.indexOf(b.id);
 
-      if (aIndex === -1 && bIndex === -1) {
-        return 0;
-      }
+        if (indexA === -1 && indexB === -1) {
+          return a.model_name.localeCompare(b.model_name);
+        }
 
-      if (aIndex === -1) {
-        return 1;
-      }
+        if (indexA === -1) {
+          return 1;
+        }
 
-      if (bIndex === -1) {
-        return -1;
-      }
+        if (indexB === -1) {
+          return -1;
+        }
 
-      return aIndex - bIndex;
-    });
+        return indexA - indexB;
+      });
+    } else {
+      sorted.sort((a, b) => a.model_name.localeCompare(b.model_name));
+    }
+
+    return sorted;
   }, [mlConfigs, modelOverrides]);
 
-  useEffect(() => {
-    if (!normalizedModels.length) {
-      setSelectedModel(null);
+  const handleTrainModel = async (model: any) => {
+    if (!model) {
       return;
     }
 
-    setSelectedModel((previous) => {
-      if (!previous) {
-        return previous;
-      }
+    const modelId =
+      model.id ?? model.config_id ?? model.model_id ?? model.model_name;
 
-      const updated = normalizedModels.find(
-        (model: any) => model.id === previous.id
-      );
+    if (!modelId) {
+      console.warn("Unable to determine model identifier for training", model);
+      return;
+    }
 
-      return updated ?? null;
-    });
-  }, [normalizedModels]);
+    const targetModelName =
+      model.model_name ?? model.name ?? model.model_type ?? modelId;
 
-  const handleTrainModel = async (model: any) => {
+    setTrainingProgress((prev) => ({ ...prev, [modelId]: 0 }));
+
+    setModelOverrides((prev) => ({
+      ...prev,
+      [modelId]: {
+        ...(prev?.[modelId] ?? {}),
+        training_status: "training",
+      },
+    }));
+
     try {
-      setTrainingProgress((prev) => ({ ...prev, [model.id]: 0 }));
-
-      // Train specific model using model type
-      const targetModelName =
-        model?.name ?? model?.model_name ?? model?.modelType ?? model?.model_type;
-
-      const result = await trainModel({
+      await trainModel({
         retrain_all: false,
         specific_models: targetModelName ? [targetModelName] : undefined,
       }).unwrap();
 
-      // Simulate training progress (in a real app, this would come from the API)
       const progressInterval = setInterval(() => {
         setTrainingProgress((prev) => {
-          const current = prev[model.id] || 0;
+          const current = prev[modelId] ?? 0;
           if (current >= 100) {
             clearInterval(progressInterval);
-            return { ...prev, [model.id]: 100 };
+            return { ...prev, [modelId]: 100 };
           }
-          return { ...prev, [model.id]: current + 10 };
+
+          return { ...prev, [modelId]: Math.min(current + 10, 100) };
         });
       }, 1000);
 
-      // Show success message after training completes
       setTimeout(() => {
-        setTrainingProgress((prev) => ({ ...prev, [model.id]: null }));
+        clearInterval(progressInterval);
+        setTrainingProgress((prev) => ({ ...prev, [modelId]: null }));
         setModelOverrides((prev) => ({
           ...prev,
-          [model.id]: {
-            ...(prev?.[model.id] ?? {}),
+          [modelId]: {
+            ...(prev?.[modelId] ?? {}),
+            training_status: "idle",
             last_trained: new Date().toISOString(),
           },
         }));
 
         refetchModels();
-        // Add success alert
-        alert(`Training completed successfully for ${model.name || model.model_type}`);
+        alert(`Training completed successfully for ${targetModelName}`);
       }, 12000);
     } catch (error) {
       console.error("Training failed:", error);
-      setTrainingProgress((prev) => ({ ...prev, [model.id]: null }));
-      // You could add error toast here
+      setTrainingProgress((prev) => ({ ...prev, [modelId]: null }));
+      setModelOverrides((prev) => ({
+        ...prev,
+        [modelId]: {
+          ...(prev?.[modelId] ?? {}),
+          training_status: "error",
+        },
+      }));
+
+      alert("Failed to trigger training for this model. Please try again.");
     }
   };
 
@@ -330,21 +398,19 @@ const MLModelManagement = () => {
                     key={model.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                      selectedModel?.id === model.id
+                    className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedModel?.id === model.id
                         ? "border-primary bg-primary/5"
                         : "border-base-300 hover:border-primary/50"
-                    }`}
+                      }`}
                     onClick={() => setSelectedModel(model)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
                         <div
-                          className={`p-2 rounded-lg ${
-                            model.is_active
+                          className={`p-2 rounded-lg ${model.is_active
                               ? "bg-success/10 text-success"
                               : "bg-base-300 text-base-content/50"
-                          }`}
+                            }`}
                         >
                           <Brain className="w-5 h-5" />
                         </div>
@@ -383,9 +449,8 @@ const MLModelManagement = () => {
 
                         {/* Model Status */}
                         <div
-                          className={`badge ${
-                            model.is_active ? "badge-success" : "badge-ghost"
-                          }`}
+                          className={`badge ${model.is_active ? "badge-success" : "badge-ghost"
+                            }`}
                         >
                           {model.is_active ? "Active" : "Inactive"}
                         </div>
@@ -411,7 +476,7 @@ const MLModelManagement = () => {
                             }}
                             disabled={
                               trainingProgress[model.id] !==
-                                undefined &&
+                              undefined &&
                               trainingProgress[model.id] !== null
                             }
                             className="btn btn-sm btn-primary btn-outline"
@@ -436,9 +501,8 @@ const MLModelManagement = () => {
                               e.stopPropagation();
                               handleToggleModel(model.id);
                             }}
-                            className={`btn btn-sm ${
-                              model.is_active ? "btn-warning" : "btn-success"
-                            }`}
+                            className={`btn btn-sm ${model.is_active ? "btn-warning" : "btn-success"
+                              }`}
                           >
                             {model.is_active ? (
                               <Pause className="w-4 h-4" />
@@ -544,8 +608,8 @@ const ModelDetailsPanel = ({ model }) => {
   const recall = coalesceMetric(model?.recall, model?.recall_score);
   const f1Score = coalesceMetric(model?.f1_score) ??
     (precision !== null &&
-    recall !== null &&
-    precision + recall > 0
+      recall !== null &&
+      precision + recall > 0
       ? (2 * precision * recall) / (precision + recall)
       : null);
 
@@ -557,8 +621,8 @@ const ModelDetailsPanel = ({ model }) => {
   const livePerformance = modelPerformance?.recommendation_performance ?? {};
   const liveTotalRecommendations = Number(
     livePerformance.total_recommendations ??
-      livePerformance.totalRecommendations ??
-      0
+    livePerformance.totalRecommendations ??
+    0
   );
   const liveClickRate =
     coalesceMetric(
@@ -580,16 +644,14 @@ const ModelDetailsPanel = ({ model }) => {
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium">Status</span>
           <div
-            className={`flex items-center gap-2 ${
-              model.is_active ? "text-success" : "text-base-content/50"
-            }`}
+            className={`flex items-center gap-2 ${model.is_active ? "text-success" : "text-base-content/50"
+              }`}
           >
             <div
-              className={`w-2 h-2 rounded-full ${
-                model.is_active
+              className={`w-2 h-2 rounded-full ${model.is_active
                   ? "bg-success animate-pulse"
                   : "bg-base-content/30"
-              }`}
+                }`}
             ></div>
             <span className="text-sm">
               {model.is_active ? "Active" : "Inactive"}
@@ -786,8 +848,8 @@ const ModelPerformanceCharts = ({ model }) => {
 
   const total_recommendations = Number(
     recommendationPerformance.total_recommendations ??
-      recommendationPerformance.totalRecommendations ??
-      0
+    recommendationPerformance.totalRecommendations ??
+    0
   );
   const rawClickThroughRate = coalesceNumber(
     recommendationPerformance.click_through_rate,
@@ -834,8 +896,8 @@ const ModelPerformanceCharts = ({ model }) => {
     ? conversion_rate > 50
       ? "high"
       : conversion_rate > 30
-      ? "moderate"
-      : "low"
+        ? "moderate"
+        : "low"
     : "unknown";
   const businessImpactSummary = hasConversionRate
     ? `conversion rate (${conversionRateDisplay}) from ${total_recommendations.toLocaleString()} recommendations served.`
@@ -878,25 +940,25 @@ const ModelPerformanceCharts = ({ model }) => {
   const businessMetricsData = [
     {
       metric: "CTR",
-  value: click_through_rate,
-  displayValue: clickThroughRateDisplay,
-  rawValue: hasClickThroughRate ? click_through_rate : null,
+      value: click_through_rate,
+      displayValue: clickThroughRateDisplay,
+      rawValue: hasClickThroughRate ? click_through_rate : null,
       color: "#8b5cf6",
       description: "Click-through rate",
     },
     {
       metric: "Conversion",
-  value: conversion_rate,
-  displayValue: conversionRateDisplay,
-  rawValue: hasConversionRate ? conversion_rate : null,
+      value: conversion_rate,
+      displayValue: conversionRateDisplay,
+      rawValue: hasConversionRate ? conversion_rate : null,
       color: "#ef4444",
       description: "Conversion rate",
     },
     {
       metric: "Avg Score",
-  value: averageScorePercent,
-  displayValue: averageScoreDisplay,
-  rawValue: hasAverageScore ? averageScorePercent : null,
+      value: averageScorePercent,
+      displayValue: averageScoreDisplay,
+      rawValue: hasAverageScore ? averageScorePercent : null,
       color: "#06b6d4",
       description: "Average recommendation score",
     },
@@ -912,19 +974,19 @@ const ModelPerformanceCharts = ({ model }) => {
     },
     {
       category: "Business Impact",
-  ctr: click_through_rate,
-  conversion: conversion_rate,
-  avgScore: averageScorePercent,
+      ctr: click_through_rate,
+      conversion: conversion_rate,
+      avgScore: averageScorePercent,
     },
   ];
 
   // F1 Score calculation
   const f1Score =
     precision !== null &&
-    precision !== undefined &&
-    recall !== null &&
-    recall !== undefined &&
-    precision + recall > 0
+      precision !== undefined &&
+      recall !== null &&
+      recall !== undefined &&
+      precision + recall > 0
       ? (2 * precision * recall) / (precision + recall)
       : null;
 
@@ -996,10 +1058,10 @@ const ModelPerformanceCharts = ({ model }) => {
     accuracy === null || accuracy === undefined
       ? "insufficient"
       : accuracy > 0.9
-      ? "excellent"
-      : accuracy > 0.8
-      ? "good"
-      : "moderate";
+        ? "excellent"
+        : accuracy > 0.8
+          ? "good"
+          : "moderate";
 
   const accuracySummaryValue =
     accuracy === null || accuracy === undefined
@@ -1010,8 +1072,8 @@ const ModelPerformanceCharts = ({ model }) => {
     f1Score === null
       ? "insufficient"
       : f1Score > 0.4
-      ? "balanced"
-      : "imbalanced";
+        ? "balanced"
+        : "imbalanced";
 
   const f1SummaryValue =
     f1Score === null ? "N/A" : (f1Score * 100).toFixed(1);
@@ -1031,7 +1093,7 @@ const ModelPerformanceCharts = ({ model }) => {
                 Last trained: {formatLastTrained(lastTrainedRaw)}
               </p>
             </div>
-              <div className="stats stats-horizontal shadow">
+            <div className="stats stats-horizontal shadow">
               <div className="stat">
                 <div className="stat-title">Total Recommendations</div>
                 <div className="stat-value text-primary">
@@ -1041,9 +1103,9 @@ const ModelPerformanceCharts = ({ model }) => {
               <div className="stat">
                 <div className="stat-title">F1 Score</div>
                 <div className="stat-value text-secondary">
-                    {f1Score !== null
-                      ? `${(f1Score * 100).toFixed(1)}%`
-                      : "N/A"}
+                  {f1Score !== null
+                    ? `${(f1Score * 100).toFixed(1)}%`
+                    : "N/A"}
                 </div>
               </div>
             </div>
@@ -1169,117 +1231,7 @@ const ModelPerformanceCharts = ({ model }) => {
       </div>
 
       {/* Recommendation Performance Breakdown */}
-      <div className="card bg-base-100 border border-base-300 shadow-lg">
-        <div className="card-body">
-          <h4 className="font-semibold mb-4 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-accent" />
-            Recommendation Performance Breakdown
-          </h4>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Pie Chart */}
-            <div>
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie
-                    data={performanceBreakdown}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) =>
-                      `${name}: ${(percent * 100).toFixed(1)}%`
-                    }
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {performanceBreakdown.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value) => [value.toLocaleString(), "Count"]}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Performance Stats */}
-            <div className="space-y-4">
-              <div className="stats stats-vertical shadow w-full">
-                <div className="stat">
-                  <div className="stat-figure text-success">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      className="inline-block w-8 h-8 stroke-current"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      ></path>
-                    </svg>
-                  </div>
-                  <div className="stat-title">Conversion Rate</div>
-                  <div className="stat-value text-success">
-                    {conversionRateDisplay}
-                  </div>
-                  <div className="stat-desc">{conversionCountDisplay}</div>
-                </div>
-
-                <div className="stat">
-                  <div className="stat-figure text-warning">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      className="inline-block w-8 h-8 stroke-current"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4"
-                      ></path>
-                    </svg>
-                  </div>
-                  <div className="stat-title">Click-through Rate</div>
-                  <div className="stat-value text-warning">
-                    {clickThroughRateDisplay}
-                  </div>
-                  <div className="stat-desc">{clickCountDisplay}</div>
-                </div>
-
-                <div className="stat">
-                  <div className="stat-figure text-info">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      className="inline-block w-8 h-8 stroke-current"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                      ></path>
-                    </svg>
-                  </div>
-                  <div className="stat-title">Average Score</div>
-                  <div className="stat-value text-info">
-                    {averageScoreDisplay}
-                  </div>
-                  <div className="stat-desc">Recommendation confidence</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Performance Summary */}
       <div className="alert alert-info">
@@ -1317,8 +1269,34 @@ const ModelPerformanceCharts = ({ model }) => {
 
 // Recommendation Management Component
 const RecommendationManagement = () => {
+  const algorithmOptions = useMemo(
+    () => [
+      { value: "hybrid", label: "Hybrid Model" },
+      { value: "collaborative", label: "Collaborative Filtering" },
+      { value: "content_based", label: "Content Based" },
+    ],
+    []
+  );
+
   const [selectedAlgorithm, setSelectedAlgorithm] = useState("hybrid");
   const [timeRange, setTimeRange] = useState(30);
+
+  const getAlgorithmLabel = useCallback(
+    (value?: string | null) => {
+      if (!value) {
+        return "All Algorithms";
+      }
+
+      const match = algorithmOptions.find((option) => option.value === value);
+      if (match) {
+        return match.label;
+      }
+
+      const fallback = String(value).replace(/_/g, " ");
+      return fallback.charAt(0).toUpperCase() + fallback.slice(1);
+    },
+    [algorithmOptions]
+  );
 
   // Updated query to use correct endpoint and parameters
   const {
@@ -1326,7 +1304,7 @@ const RecommendationManagement = () => {
     isLoading: recLoading,
     refetch: refetchRecPerformance,
   } = useGetRecommendationPerformanceQuery({
-    algorithm: selectedAlgorithm,
+    algorithm: selectedAlgorithm || undefined,
     days: timeRange,
   });
 
@@ -1347,23 +1325,36 @@ const RecommendationManagement = () => {
       return [];
     }
 
-    return recPerformance.map((algorithm: any) => {
+    return recPerformance.map((entry: any) => {
+      const algorithmKeyRaw =
+        entry?.algorithm ?? selectedAlgorithm ?? null;
+      const algorithmKey =
+        typeof algorithmKeyRaw === "string"
+          ? algorithmKeyRaw
+          : algorithmKeyRaw !== null && algorithmKeyRaw !== undefined
+            ? String(algorithmKeyRaw)
+            : "";
+
+      const displayLabel = getAlgorithmLabel(
+        algorithmKey || undefined
+      );
+
       const totalRecommendations = Number(
-        algorithm.total_recommendations ?? algorithm.impressions ?? 0
+        entry.total_recommendations ?? entry.impressions ?? 0
       );
 
       const clickRate = Number(
-        algorithm.click_through_rate ?? algorithm.click_rate ?? 0
+        entry.click_through_rate ?? entry.click_rate ?? 0
       );
 
-      const conversionRate = Number(algorithm.conversion_rate ?? 0);
+      const conversionRate = Number(entry.conversion_rate ?? 0);
 
       const computedClicks =
         totalRecommendations > 0
           ? Math.round((clickRate / 100) * totalRecommendations)
           : 0;
       const clicks = Number(
-        algorithm.total_clicks ?? algorithm.clicks ?? computedClicks
+        entry.total_clicks ?? entry.clicks ?? computedClicks
       );
 
       const computedConversions =
@@ -1371,20 +1362,22 @@ const RecommendationManagement = () => {
           ? Math.round((conversionRate / 100) * totalRecommendations)
           : 0;
       const conversions = Number(
-        algorithm.total_conversions ??
-          algorithm.conversions ??
-          computedConversions
+        entry.total_conversions ??
+        entry.conversions ??
+        computedConversions
       );
 
       const derivedRevenue = Math.round(
         conversions * (averageOrderValue || 0)
       );
       const revenueImpact = Number(
-        algorithm.revenue_impact ?? derivedRevenue
+        entry.revenue_impact ?? derivedRevenue
       );
 
       return {
-        ...algorithm,
+        ...entry,
+        algorithm: algorithmKey || undefined,
+        display_label: displayLabel,
         total_recommendations: totalRecommendations,
         impressions: totalRecommendations,
         click_rate: clickRate,
@@ -1397,13 +1390,7 @@ const RecommendationManagement = () => {
         revenue_impact: revenueImpact,
       };
     });
-  }, [recPerformance, averageOrderValue]);
-
-  const algorithms = [
-    { id: "hybrid", name: "Hybrid Model", color: "warning" },
-    { id: "collaborative_filtering", name: "Collaborative", color: "success" },
-    { id: "content_based", name: "Content Based", color: "info" },
-  ];
+  }, [recPerformance, averageOrderValue, selectedAlgorithm, getAlgorithmLabel]);
 
   if (recLoading) {
     return (
@@ -1430,9 +1417,9 @@ const RecommendationManagement = () => {
             value={selectedAlgorithm}
             onChange={(e) => setSelectedAlgorithm(e.target.value)}
           >
-            {algorithms.map((alg) => (
-              <option key={alg.id} value={alg.id}>
-                {alg.name}
+            {algorithmOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -1457,10 +1444,10 @@ const RecommendationManagement = () => {
       </div>
 
       {/* Algorithm Performance Cards */}
-     {/* Algorithm Performance Cards */}
+      {/* Algorithm Performance Cards */}
       {processedPerformance.length === 0 ? (
         <div className="w-full">
-          <div className="card bg-gradient-to-br from-base-200/40 to-base-300/20 border-2 border-dashed border-base-300">
+          <div className="card bg-linear-to-br from-base-200/40 to-base-300/20 border-2 border-dashed border-base-300">
             <div className="card-body items-center text-center py-16">
               <div className="bg-base-300/50 rounded-full p-6 mb-4">
                 <Target className="w-20 h-20 text-base-content/40" />
@@ -1484,33 +1471,25 @@ const RecommendationManagement = () => {
               transition={{ delay: index * 0.1, duration: 0.3 }}
               className="group relative"
             >
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-secondary/10 to-accent/10 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-              
+              <div className="absolute inset-0 bg-linear-to-br from-primary/10 via-secondary/10 to-accent/10 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+
               <div className="relative card bg-base-100 border-2 border-base-300 hover:border-primary/50 shadow-xl hover:shadow-2xl transition-all duration-300 overflow-hidden">
                 {/* Decorative gradient background */}
-                <div className="absolute top-0 right-0 w-96 h-full bg-gradient-to-l from-primary/5 to-transparent"></div>
-                
+                <div className="absolute top-0 right-0 w-96 h-full bg-linear-to-l from-primary/5 to-transparent"></div>
+
                 <div className="card-body p-6 relative z-10">
                   {/* Header */}
                   <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-base-200">
                     <div className="flex items-center gap-4">
-                      <div className="p-3 bg-gradient-to-br from-primary to-primary/70 rounded-xl shadow-lg">
+                      <div className="p-3 bg-linear-to-br from-primary to-primary/70 rounded-xl shadow-lg">
                         <Brain className="w-7 h-7 text-white" />
                       </div>
                       <div>
                         <h3 className="font-bold text-2xl text-base-content">
-                          {(() => {
-                            const displayMap: Record<string, string> = {
-                              hybrid: "Hybrid Model",
-                              collaborative_filtering: "Collaborative Filtering",
-                              content_based: "Content Based",
-                            };
-                            const key = algorithm.algorithm;
-                            return (
-                              displayMap[key] ||
-                              (String(key).replace(/_/g, " ") as string)
-                            );
-                          })()}
+                          {algorithm.display_label ??
+                            getAlgorithmLabel(
+                              algorithm.algorithm ?? selectedAlgorithm
+                            )}
                         </h3>
                         <p className="text-sm text-base-content/60 flex items-center gap-2 mt-1">
                           <Eye className="w-4 h-4" />
@@ -1523,7 +1502,7 @@ const RecommendationManagement = () => {
                   {/* Metrics Grid - Side by Side */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* CTR Metric */}
-                    <div className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl p-5 border-2 border-primary/20 hover:border-primary/40 transition-all">
+                    <div className="bg-linear-to-br from-primary/10 to-primary/5 rounded-xl p-5 border-2 border-primary/20 hover:border-primary/40 transition-all">
                       <div className="flex items-center gap-3 mb-3">
                         <div className="p-2 bg-primary/20 rounded-lg">
                           <MousePointer className="w-5 h-5 text-primary" />
@@ -1534,11 +1513,11 @@ const RecommendationManagement = () => {
                         {Number(algorithm.click_through_rate ?? 0).toFixed(2)}%
                       </p>
                       <div className="w-full bg-base-300/50 rounded-full h-2 overflow-hidden">
-                        <motion.div 
+                        <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: `${Math.min(Number(algorithm.click_through_rate ?? 0) * 2, 100)}%` }}
                           transition={{ duration: 1, delay: index * 0.1 + 0.3 }}
-                          className="bg-gradient-to-r from-primary to-primary/60 rounded-full h-2"
+                          className="bg-linear-to-r from-primary to-primary/60 rounded-full h-2"
                         ></motion.div>
                       </div>
                       <p className="text-xs text-base-content/60 mt-2 flex items-center gap-1">
@@ -1548,7 +1527,7 @@ const RecommendationManagement = () => {
                     </div>
 
                     {/* Conversion Rate Metric */}
-                    <div className="bg-gradient-to-br from-success/10 to-success/5 rounded-xl p-5 border-2 border-success/20 hover:border-success/40 transition-all">
+                    <div className="bg-linear-to-br from-success/10 to-success/5 rounded-xl p-5 border-2 border-success/20 hover:border-success/40 transition-all">
                       <div className="flex items-center gap-3 mb-3">
                         <div className="p-2 bg-success/20 rounded-lg">
                           <ShoppingCart className="w-5 h-5 text-success" />
@@ -1559,11 +1538,11 @@ const RecommendationManagement = () => {
                         {Number(algorithm.conversion_rate ?? 0).toFixed(2)}%
                       </p>
                       <div className="w-full bg-base-300/50 rounded-full h-2 overflow-hidden">
-                        <motion.div 
+                        <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: `${Math.min(Number(algorithm.conversion_rate ?? 0) * 2, 100)}%` }}
                           transition={{ duration: 1, delay: index * 0.1 + 0.4 }}
-                          className="bg-gradient-to-r from-success to-success/60 rounded-full h-2"
+                          className="bg-linear-to-r from-success to-success/60 rounded-full h-2"
                         ></motion.div>
                       </div>
                       <p className="text-xs text-base-content/60 mt-2 flex items-center gap-1">
@@ -1573,7 +1552,7 @@ const RecommendationManagement = () => {
                     </div>
 
                     {/* Revenue Impact */}
-                    <div className="bg-gradient-to-br from-warning/10 to-warning/5 rounded-xl p-5 border-2 border-warning/20 hover:border-warning/40 transition-all">
+                    <div className="bg-linear-to-br from-warning/10 to-warning/5 rounded-xl p-5 border-2 border-warning/20 hover:border-warning/40 transition-all">
                       <div className="flex items-center gap-3 mb-3">
                         <div className="p-2 bg-warning/20 rounded-lg">
                           <TrendingUp className="w-5 h-5 text-warning" />
@@ -1607,18 +1586,20 @@ const RecommendationPerformanceChart = ({ algorithms }) => {
   // Normalize and map API fields for chart rendering
   const chartData = Array.isArray(algorithms)
     ? algorithms.map((alg: any) => ({
-        name: alg.algorithm ? alg.algorithm.replace(/_/g, " ") : "All",
-        ctr: alg.click_rate ?? alg.click_through_rate ?? 0,
-        conversion: alg.conversion_rate ?? 0,
-        impressions: alg.total_recommendations ?? alg.impressions ?? 0,
-        revenue: alg.revenue_impact ?? 0,
-        total_clicks: alg.total_clicks ?? 0,
-        total_conversions: alg.total_conversions ?? 0,
-        average_score: alg.average_score ?? 0,
-        period_days: alg.period_days ?? 0,
-        performance_by_day: alg.performance_by_day ?? [],
-        top_performing_products: alg.top_performing_products ?? [],
-      }))
+      name:
+        alg.display_label ??
+        (alg.algorithm ? alg.algorithm.replace(/_/g, " ") : "All"),
+      ctr: alg.click_rate ?? alg.click_through_rate ?? 0,
+      conversion: alg.conversion_rate ?? 0,
+      impressions: alg.total_recommendations ?? alg.impressions ?? 0,
+      revenue: alg.revenue_impact ?? 0,
+      total_clicks: alg.total_clicks ?? 0,
+      total_conversions: alg.total_conversions ?? 0,
+      average_score: alg.average_score ?? 0,
+      period_days: alg.period_days ?? 0,
+      performance_by_day: alg.performance_by_day ?? [],
+      top_performing_products: alg.top_performing_products ?? [],
+    }))
     : [];
 
   // Daily performance chart data
@@ -1743,19 +1724,408 @@ type UserSegment = {
   update_frequency?: string;
 };
 
+type OperatorKey =
+  | "equals"
+  | "not_equals"
+  | "greater_than"
+  | "greater_or_equal"
+  | "less_than"
+  | "less_or_equal"
+  | "contains"
+  | "in"
+  | "not_in";
+
+type ValueType = "number" | "integer" | "date" | "string";
+
+type SegmentFieldDefinition = {
+  id: string;
+  label: string;
+  field: string;
+  valueType: ValueType;
+  segmentTypes: string[];
+  defaultOperator: OperatorKey;
+  operators?: OperatorKey[];
+  placeholder?: string;
+  step?: string;
+  min?: string;
+};
+
+type CriteriaCondition = {
+  field: string;
+  operator: OperatorKey;
+  value: string;
+};
+
+const SEGMENT_FIELD_DEFINITIONS: SegmentFieldDefinition[] = [
+  {
+    id: "purchase-amount",
+    label: "Purchase Amount",
+    field: "order.total",
+    valueType: "number",
+    segmentTypes: ["custom", "behavioral"],
+    defaultOperator: "greater_than",
+    placeholder: "e.g., 250.00",
+    step: "0.01",
+    min: "0",
+  },
+  {
+    id: "order-frequency",
+    label: "Order Frequency",
+    field: "order.count",
+    valueType: "integer",
+    segmentTypes: ["custom", "behavioral"],
+    defaultOperator: "greater_than",
+    placeholder: "e.g., 3",
+    step: "1",
+    min: "0",
+  },
+  {
+    id: "last-purchase-date",
+    label: "Last Purchase Date",
+    field: "order.last_purchase",
+    valueType: "date",
+    segmentTypes: ["custom", "behavioral"],
+    defaultOperator: "greater_or_equal",
+  },
+  {
+    id: "product-category",
+    label: "Product Category",
+    field: "order.category",
+    valueType: "string",
+    segmentTypes: ["custom", "behavioral", "demographic"],
+    defaultOperator: "equals",
+    operators: ["equals", "contains", "in", "not_in"],
+    placeholder: "Category name or ID",
+  },
+  {
+    id: "rfm-recency",
+    label: "RFM Recency Score",
+    field: "rfm.recency_score",
+    valueType: "number",
+    segmentTypes: ["rfm"],
+    defaultOperator: "less_or_equal",
+    placeholder: "e.g., 2",
+    step: "1",
+    min: "1",
+  },
+  {
+    id: "rfm-frequency",
+    label: "RFM Frequency Score",
+    field: "rfm.frequency_score",
+    valueType: "number",
+    segmentTypes: ["rfm"],
+    defaultOperator: "greater_or_equal",
+    step: "1",
+    min: "1",
+  },
+  {
+    id: "rfm-monetary",
+    label: "RFM Monetary Score",
+    field: "rfm.monetary_score",
+    valueType: "number",
+    segmentTypes: ["rfm"],
+    defaultOperator: "greater_or_equal",
+    step: "1",
+    min: "1",
+  },
+  {
+    id: "rfm-total-spend",
+    label: "Total Spend",
+    field: "rfm.total_spent",
+    valueType: "number",
+    segmentTypes: ["rfm"],
+    defaultOperator: "greater_or_equal",
+    placeholder: "e.g., 1000",
+    step: "0.01",
+    min: "0",
+  },
+  {
+    id: "rfm-order-count",
+    label: "Orders Placed",
+    field: "rfm.order_count",
+    valueType: "integer",
+    segmentTypes: ["rfm"],
+    defaultOperator: "greater_or_equal",
+    step: "1",
+    min: "0",
+  },
+  {
+    id: "behavior-last-login",
+    label: "Last Login Date",
+    field: "user.last_login",
+    valueType: "date",
+    segmentTypes: ["behavioral"],
+    defaultOperator: "greater_or_equal",
+  },
+  {
+    id: "behavior-order-frequency",
+    label: "Order Frequency (Behavioral)",
+    field: "order.count",
+    valueType: "integer",
+    segmentTypes: ["behavioral"],
+    defaultOperator: "greater_than",
+    step: "1",
+    min: "0",
+  },
+  {
+    id: "demographic-gender",
+    label: "Gender",
+    field: "user.gender",
+    valueType: "string",
+    segmentTypes: ["demographic"],
+    defaultOperator: "equals",
+    placeholder: "e.g., female",
+  },
+  {
+    id: "demographic-country",
+    label: "Country",
+    field: "user.country",
+    valueType: "string",
+    segmentTypes: ["demographic"],
+    defaultOperator: "equals",
+    placeholder: "e.g., United States",
+  },
+  {
+    id: "demographic-age",
+    label: "Age",
+    field: "demographic.age",
+    valueType: "number",
+    segmentTypes: ["demographic"],
+    defaultOperator: "greater_or_equal",
+    min: "0",
+    step: "1",
+  },
+];
+
+const FIELD_DEFINITION_BY_FIELD = SEGMENT_FIELD_DEFINITIONS.reduce<Record<string, SegmentFieldDefinition>>(
+  (acc, def) => {
+    acc[def.field] = def;
+    return acc;
+  },
+  {}
+);
+
+const DEFAULT_OPERATORS_BY_TYPE: Record<ValueType, OperatorKey[]> = {
+  number: ["greater_than", "greater_or_equal", "equals", "less_or_equal", "less_than"],
+  integer: ["greater_than", "greater_or_equal", "equals", "less_or_equal", "less_than"],
+  date: ["greater_than", "greater_or_equal", "equals", "less_or_equal", "less_than"],
+  string: ["equals", "not_equals", "contains"],
+};
+
+const DEFAULT_OPERATOR_LABELS: Record<OperatorKey, string> = {
+  equals: "Equals",
+  not_equals: "Not equal to",
+  greater_than: "Greater than",
+  greater_or_equal: "Greater than or equal",
+  less_than: "Less than",
+  less_or_equal: "Less than or equal",
+  contains: "Contains",
+  in: "In (comma separated)",
+  not_in: "Not in (comma separated)",
+};
+
+const DATE_OPERATOR_LABELS: Partial<Record<OperatorKey, string>> = {
+  greater_than: "After",
+  greater_or_equal: "On or after",
+  less_than: "Before",
+  less_or_equal: "On or before",
+  equals: "On",
+};
+
+const getOperatorLabel = (operator: OperatorKey, valueType: ValueType) => {
+  if (valueType === "date" && DATE_OPERATOR_LABELS[operator]) {
+    return DATE_OPERATOR_LABELS[operator] as string;
+  }
+  return DEFAULT_OPERATOR_LABELS[operator] ?? operator;
+};
+
+const getFieldsForSegmentType = (segmentType: string) =>
+  SEGMENT_FIELD_DEFINITIONS.filter((def) => def.segmentTypes.includes(segmentType));
+
+const getDefaultFieldForType = (segmentType: string): SegmentFieldDefinition => {
+  const available = getFieldsForSegmentType(segmentType);
+  if (available.length > 0) {
+    return available[0];
+  }
+  return SEGMENT_FIELD_DEFINITIONS[0];
+};
+
+const createDefaultConditionForType = (segmentType: string): CriteriaCondition => {
+  const defaultField = getDefaultFieldForType(segmentType);
+  const operators = defaultField.operators ?? DEFAULT_OPERATORS_BY_TYPE[defaultField.valueType];
+  const operator = defaultField.defaultOperator || operators[0] || "equals";
+  return {
+    field: defaultField.field,
+    operator,
+    value: "",
+  };
+};
+
+const normalizeSegmentType = (segmentType?: string) => {
+  if (typeof segmentType !== "string") {
+    return "custom";
+  }
+
+  const normalized = segmentType.trim().toLowerCase();
+  return normalized || "custom";
+};
+
+const getOperatorsForFieldDefinition = (fieldDef: SegmentFieldDefinition): OperatorKey[] =>
+  fieldDef.operators ?? DEFAULT_OPERATORS_BY_TYPE[fieldDef.valueType];
+
+const normalizeConditionsForType = (
+  conditions: CriteriaCondition[] | undefined,
+  segmentType: string
+): CriteriaCondition[] => {
+  const baseConditions = Array.isArray(conditions) && conditions.length > 0
+    ? conditions
+    : [createDefaultConditionForType(segmentType)];
+
+  const fallbackField = getDefaultFieldForType(segmentType);
+
+  return baseConditions.map((condition) => {
+    const fieldDef =
+      FIELD_DEFINITION_BY_FIELD[condition?.field] ?? fallbackField ?? SEGMENT_FIELD_DEFINITIONS[0];
+
+    const operators = getOperatorsForFieldDefinition(fieldDef);
+    const defaultOperator = fieldDef.defaultOperator ?? operators[0] ?? "equals";
+    const normalizedOperator = operators.includes(condition?.operator as OperatorKey)
+      ? (condition.operator as OperatorKey)
+      : defaultOperator;
+
+    let normalizedValue: string;
+
+    if (Array.isArray(condition?.value)) {
+      normalizedValue = condition.value.join(", ");
+    } else if (condition?.value === null || condition?.value === undefined) {
+      normalizedValue = "";
+    } else {
+      normalizedValue = String(condition.value);
+    }
+
+    return {
+      field: fieldDef.field,
+      operator: normalizedOperator,
+      value: normalizedValue,
+    };
+  });
+};
+
+const createInitialSegmentState = (segmentType = "custom") => ({
+  name: "",
+  description: "",
+  type: segmentType,
+  criteria: {
+    logic: "and",
+    conditions: [createDefaultConditionForType(segmentType)],
+  },
+});
+
+const normalizeNumericValue = (value: unknown): number => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === "string") {
+    const cleaned = value.trim();
+    if (!cleaned) {
+      return 0;
+    }
+
+    const parsed = Number(cleaned.replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+
+  return 0;
+};
+
+const normalizePercentageValue = (value: unknown): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+
+    if (value >= -1 && value <= 1) {
+      return value * 100;
+    }
+
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const match = trimmed.match(/-?\d+(?:\.\d+)?/);
+    if (!match) {
+      return null;
+    }
+
+    const parsed = Number(match[0]);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+
+    if (trimmed.includes("%")) {
+      return parsed;
+    }
+
+    if (parsed >= -1 && parsed <= 1) {
+      return parsed * 100;
+    }
+
+    return parsed;
+  }
+
+  return null;
+};
+
+const deriveConversionRate = (
+  rawValues: unknown[],
+  ordersCount: number,
+  memberCount: number
+): number => {
+  for (const value of rawValues) {
+    const normalized = normalizePercentageValue(value);
+    if (normalized !== null) {
+      return normalized;
+    }
+  }
+
+  if (memberCount > 0) {
+    const computed = (ordersCount / memberCount) * 100;
+    return Number.isFinite(computed) ? computed : 0;
+  }
+
+  return 0;
+};
+
 const UserSegmentationManagement = () => {
   const [isCreatingSegment, setIsCreatingSegment] = useState(false);
-  const [newSegment, setNewSegment] = useState({
-    name: "",
-    description: "",
-    criteria: { field: "Purchase Amount", operator: "Greater than", value: "" },
-  });
+  const [newSegment, setNewSegment] = useState(() => createInitialSegmentState());
 
   const {
     data: userSegments = [],
     isLoading: segmentsLoading,
     refetch: refetchSegments,
   } = useGetUserSegmentsQuery({});
+
+  const [createUserSegment, { isLoading: createSegmentLoading }] =
+    useCreateUserSegmentMutation();
+
+  const [createSegmentError, setCreateSegmentError] = useState<string | null>(
+    null
+  );
 
   const segments: UserSegment[] = Array.isArray(userSegments)
     ? (userSegments as UserSegment[])
@@ -1772,6 +2142,7 @@ const UserSegmentationManagement = () => {
   const performanceData = Array.isArray(rawSegmentPerformance)
     ? rawSegmentPerformance
     : [];
+
 
   const segmentAnalytics = Array.isArray(segmentPerformanceAnalytics)
     ? segmentPerformanceAnalytics
@@ -1825,50 +2196,68 @@ const UserSegmentationManagement = () => {
       meta?.name ??
       key;
 
-    const memberCountValue =
+    const memberCountValue = normalizeNumericValue(
       analytics?.member_count ??
-      base?.member_count ??
-      base?.user_count ??
-      meta?.member_count ??
-      0;
+        base?.member_count ??
+        base?.user_count ??
+        meta?.member_count ??
+        0
+    );
 
-    const ordersCountValue =
+    const ordersCountValue = normalizeNumericValue(
       analytics?.orders_count ??
-      base?.orders_count ??
-      meta?.orders_count ??
-      0;
+        base?.orders_count ??
+        meta?.orders_count ??
+        base?.order_count ??
+        analytics?.order_count ??
+        0
+    );
 
-    const totalRevenueValue =
+    const totalRevenueValue = normalizeNumericValue(
       analytics?.total_revenue ??
-      base?.total_revenue ??
-      base?.revenue_contribution ??
-      meta?.total_revenue ??
-      0;
+        base?.total_revenue ??
+        base?.revenue_contribution ??
+        meta?.total_revenue ??
+        0
+    );
 
-    const avgOrderValue =
+    const avgOrderValue = normalizeNumericValue(
       analytics?.avg_order_value ??
-      base?.avg_order_value ??
-      base?.average_order_value ??
-      (ordersCountValue > 0 ? totalRevenueValue / ordersCountValue : 0);
+        base?.avg_order_value ??
+        base?.average_order_value ??
+        (ordersCountValue > 0 ? totalRevenueValue / ordersCountValue : 0)
+    );
 
-    const revenuePerMemberValue =
+    const revenuePerMemberValue = normalizeNumericValue(
       analytics?.revenue_per_member ??
-      base?.revenue_per_member ??
-      (memberCountValue > 0 ? totalRevenueValue / memberCountValue : 0);
+        base?.revenue_per_member ??
+        (memberCountValue > 0 ? totalRevenueValue / memberCountValue : 0)
+    );
 
-    const conversionRateValue =
-      analytics?.conversion_rate ??
-      base?.conversion_rate ??
-      (memberCountValue > 0 ? (ordersCountValue / memberCountValue) * 100 : 0);
+    const conversionRateValue = deriveConversionRate(
+      [
+        analytics?.conversion_rate,
+        analytics?.conversionRate,
+        base?.conversion_rate,
+        base?.conversionRate,
+        meta?.conversion_rate,
+        meta?.conversionRate,
+      ],
+      ordersCountValue,
+      memberCountValue
+    );
 
     const createdAt =
       meta?.created_at ??
+      analytics?.created_at ??
       base?.created_at ??
       base?.createdAt ??
       meta?.metadata?.created_at ??
       null;
 
     const updatedAt =
+      analytics?.last_updated ??
+      analytics?.updated_at ??
       meta?.updated_at ??
       base?.updated_at ??
       base?.updatedAt ??
@@ -1899,6 +2288,7 @@ const UserSegmentationManagement = () => {
       segment_id: meta?.segment_id ?? base?.segment_id ?? base?.id ?? key,
       segment_name: name,
       description:
+        analytics?.description ??
         base?.description ??
         meta?.description ??
         "No description available.",
@@ -1955,6 +2345,168 @@ const UserSegmentationManagement = () => {
     combinedSegments.push(buildCombinedSegment(key, { meta }));
     seenKeys.add(key);
   });
+
+  const transformConditionValue = (
+    rawValue: unknown,
+    fieldDef: SegmentFieldDefinition,
+    operator: OperatorKey
+  ) => {
+    if (operator === "in" || operator === "not_in") {
+      const parts = Array.isArray(rawValue)
+        ? rawValue
+        : String(rawValue ?? "")
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean);
+
+      if (!parts.length) {
+        return [];
+      }
+
+      if (fieldDef.valueType === "number" || fieldDef.valueType === "integer") {
+        const numericValues = (parts as string[])
+          .map((part) =>
+            fieldDef.valueType === "integer"
+              ? parseInt(part, 10)
+              : Number(part.replace(/,/g, ""))
+          )
+          .filter((value) => !Number.isNaN(value));
+
+        return numericValues;
+      }
+
+      return (parts as string[]).map((item) => item.trim());
+    }
+
+    if (fieldDef.valueType === "number") {
+      const numericValue = Number(String(rawValue ?? "").replace(/,/g, ""));
+      return Number.isNaN(numericValue) ? null : numericValue;
+    }
+
+    if (fieldDef.valueType === "integer") {
+      const numericValue = parseInt(String(rawValue ?? "").replace(/,/g, ""), 10);
+      return Number.isNaN(numericValue) ? null : numericValue;
+    }
+
+    if (fieldDef.valueType === "date") {
+      const date = new Date(String(rawValue ?? ""));
+      if (Number.isNaN(date.getTime())) {
+        return null;
+      }
+      return date.toISOString();
+    }
+
+    const textValue = String(rawValue ?? "").trim();
+    if (!textValue) {
+      return null;
+    }
+    return textValue;
+  };
+
+  const buildCriteriaPayload = () => {
+    const criteriaState = newSegment.criteria ?? {};
+    const logic =
+      typeof criteriaState.logic === "string" &&
+      ["and", "or"].includes(criteriaState.logic.toLowerCase())
+        ? criteriaState.logic.toLowerCase()
+        : "and";
+
+    const rawConditions = Array.isArray(criteriaState.conditions)
+      ? criteriaState.conditions
+      : [];
+
+    const parsedConditions = rawConditions
+      .map((condition: CriteriaCondition) => {
+        const fieldKey = condition?.field;
+        const operatorKey = condition?.operator as OperatorKey;
+        const rawValue = condition?.value;
+
+        const fieldDef = FIELD_DEFINITION_BY_FIELD[fieldKey];
+        if (!fieldDef || !operatorKey) {
+          return null;
+        }
+
+        const validOperators = fieldDef.operators ?? DEFAULT_OPERATORS_BY_TYPE[fieldDef.valueType];
+        if (!validOperators.includes(operatorKey)) {
+          return null;
+        }
+
+        const parsedValue = transformConditionValue(rawValue, fieldDef, operatorKey);
+
+        if (Array.isArray(parsedValue)) {
+          if (!parsedValue.length) {
+            return null;
+          }
+        } else if (parsedValue === null || parsedValue === undefined) {
+          return null;
+        }
+
+        return {
+          field: fieldKey,
+          operator: operatorKey,
+          value: parsedValue,
+        };
+      })
+      .filter(Boolean);
+
+    if (!parsedConditions.length) {
+      return {};
+    }
+
+    return {
+      logic,
+      conditions: parsedConditions,
+    };
+  };
+
+  const resetNewSegmentState = (segmentType = "custom") => {
+    setNewSegment(createInitialSegmentState(normalizeSegmentType(segmentType)));
+  };
+
+  const handleCreateSegment = async () => {
+    const trimmedName = newSegment.name?.trim() ?? "";
+
+    if (!trimmedName) {
+      setCreateSegmentError("Segment name is required.");
+      return;
+    }
+
+    setCreateSegmentError(null);
+
+  const segmentType = normalizeSegmentType(newSegment.type);
+    const criteriaPayload = buildCriteriaPayload();
+    const payload = {
+      name: trimmedName,
+      description: newSegment.description?.trim() ?? "",
+      criteria: Object.keys(criteriaPayload).length ? criteriaPayload : {},
+      segment_type: segmentType,
+      is_active: true,
+      auto_update: true,
+    };
+
+    try {
+      await createUserSegment(payload).unwrap();
+      toast.success(`Segment "${trimmedName}" created successfully.`);
+      resetNewSegmentState(segmentType);
+      setIsCreatingSegment(false);
+      refetchSegments();
+    } catch (error: any) {
+      console.error("Segment creation failed:", error);
+      const message =
+        error?.data?.detail ??
+        error?.data?.message ??
+        (typeof error?.data === "string" ? error.data : null) ??
+        "Failed to create segment";
+      setCreateSegmentError(message);
+      toast.error(message);
+    }
+  };
+
+  const handleCloseCreateModal = () => {
+    resetNewSegmentState();
+    setCreateSegmentError(null);
+    setIsCreatingSegment(false);
+  };
 
   combinedSegments.sort((a, b) => (b.member_count ?? 0) - (a.member_count ?? 0));
 
@@ -2019,15 +2571,34 @@ const UserSegmentationManagement = () => {
           },
           {
             title: "Avg Conversion",
-            value: performanceData.length
-              ? (
-                  performanceData.reduce(
-                    (sum: any, seg: { conversion_rate: any }) =>
-                      sum + seg.conversion_rate,
-                    0
-                  ) / performanceData.length
-                ).toFixed(1) + "%"
-              : "0%",
+            value: (() => {
+              const { weightedRate, totalUsers } = combinedSegments.reduce(
+                (acc, seg) => {
+                  const users = normalizeNumericValue(
+                    seg.member_count ?? seg.user_count ?? 0
+                  );
+                  if (!users) {
+                    return acc;
+                  }
+
+                  const rate = normalizePercentageValue(seg.conversion_rate);
+                  if (rate === null) {
+                    return acc;
+                  }
+
+                  acc.totalUsers += users;
+                  acc.weightedRate += rate * users;
+                  return acc;
+                },
+                { weightedRate: 0, totalUsers: 0 }
+              );
+
+              if (!totalUsers) {
+                return "0%";
+              }
+
+              return `${(weightedRate / totalUsers).toFixed(1)}%`;
+            })(),
             icon: TrendingUp,
             color: "warning",
           },
@@ -2067,13 +2638,13 @@ const UserSegmentationManagement = () => {
       </div>
 
       {/* Segments List and Chart */}
-  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-	<ActiveSegmentsCard segments={combinedSegments} />
-    <SegmentPerformanceChart segments={combinedSegments} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ActiveSegmentsCard segments={combinedSegments} />
+        <SegmentPerformanceChart segments={combinedSegments} />
       </div>
 
       {/* Segment Details */}
-  <SegmentDetailsTable segments={combinedSegments} />
+      <SegmentDetailsTable segments={combinedSegments} />
 
       {/* Create New Segment Modal */}
       <AnimatePresence>
@@ -2081,11 +2652,10 @@ const UserSegmentationManagement = () => {
           <CreateSegmentModal
             newSegment={newSegment}
             setNewSegment={setNewSegment}
-            onClose={() => setIsCreatingSegment(false)}
-            onSave={() => {
-              setIsCreatingSegment(false);
-              refetchSegments();
-            }}
+            onClose={handleCloseCreateModal}
+            onSave={handleCreateSegment}
+            isSaving={createSegmentLoading}
+            error={createSegmentError}
           />
         )}
       </AnimatePresence>
@@ -2133,9 +2703,18 @@ const ActiveSegmentsCard = ({
                 segment?.updated_at ??
                 segment?.created_at ??
                 null;
-              const timestampLabel = updatedAt
-                ? `Last updated: ${new Date(updatedAt).toLocaleDateString()}`
-                : "Last updated: N/A";
+              let timestampLabel = "Last updated: N/A";
+              if (updatedAt) {
+                const parsed = new Date(updatedAt);
+                if (!Number.isNaN(parsed.getTime())) {
+                  timestampLabel = `Last updated: ${parsed.toLocaleString()}`;
+                }
+              }
+
+              const descriptionText =
+                typeof segment.description === "string" && segment.description.trim()
+                  ? segment.description.trim()
+                  : "No description provided";
 
               return (
                 <motion.div
@@ -2156,7 +2735,7 @@ const ActiveSegmentsCard = ({
                           {displayName}
                         </h4>
                         <p className="text-sm text-base-content/60">
-                          {segment.description || "No description provided"}
+                          {descriptionText}
                         </p>
                       </div>
                     </div>
@@ -2209,9 +2788,73 @@ const ActiveSegmentsCard = ({
 };
 
 // Segment Performance Chart
-const SegmentPerformanceChart = ({ segmentPerformance }) => {
-  const activeSegments =
-    segmentPerformance?.filter((seg) => seg.user_count > 0) || [];
+const SegmentPerformanceChart = ({
+  segments,
+  segmentPerformance,
+}: {
+  segments?: any[];
+  segmentPerformance?: any[];
+}) => {
+  const rawSegments = useMemo(() => {
+    if (Array.isArray(segments) && segments.length > 0) {
+      return segments;
+    }
+
+    if (Array.isArray(segmentPerformance)) {
+      return segmentPerformance;
+    }
+
+    return [];
+  }, [segments, segmentPerformance]);
+
+  const chartData = useMemo(() => {
+    if (!Array.isArray(rawSegments)) {
+      return [];
+    }
+
+    return rawSegments
+      .map((segment) => {
+        const memberCount =
+          segment?.member_count ?? segment?.user_count ?? segment?.members ?? 0;
+
+        const conversionRate = normalizePercentageValue(
+          segment?.conversion_rate
+        );
+
+        return {
+          ...segment,
+          segment_name:
+            segment?.segment_name ??
+            segment?.name ??
+            segment?.segment_id ??
+            "Unnamed Segment",
+          member_count: memberCount,
+          user_count: memberCount,
+          conversion_rate: conversionRate === null ? 0 : conversionRate,
+          revenue_contribution: normalizeNumericValue(
+            segment?.total_revenue ?? segment?.revenue_contribution ?? 0
+          ),
+        };
+      })
+      .filter((segment) => (segment?.member_count ?? 0) > 0);
+  }, [rawSegments]);
+
+  if (!chartData.length) {
+    return (
+      <div className="card bg-base-100 border border-base-300 shadow-lg rounded-xl">
+        <div className="card-body items-center text-center space-y-3 py-12">
+          <Users className="w-10 h-10 text-base-content/40 mx-auto" />
+          <h3 className="text-lg font-semibold text-base-content/80">
+            No segment performance data yet
+          </h3>
+          <p className="text-sm text-base-content/60 max-w-sm">
+            When segments have member activity and conversion metrics, the chart
+            will visualize their performance here.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="card bg-base-100 border border-base-300 shadow-lg rounded-xl">
@@ -2221,7 +2864,7 @@ const SegmentPerformanceChart = ({ segmentPerformance }) => {
         </h3>
         <ResponsiveContainer width="100%" height={350}>
           <BarChart
-            data={activeSegments}
+            data={chartData}
             margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
           >
             <CartesianGrid
@@ -2257,6 +2900,7 @@ const SegmentPerformanceChart = ({ segmentPerformance }) => {
                 position: "insideRight",
                 style: { fill: "#4B5563", fontSize: 12 },
               }}
+              tickFormatter={(value) => `${value?.toFixed?.(0) ?? value}%`}
             />
             <Tooltip
               contentStyle={{
@@ -2266,19 +2910,21 @@ const SegmentPerformanceChart = ({ segmentPerformance }) => {
                 boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
               }}
               formatter={(value, name) => {
-                if (name === "revenue_contribution") {
-                  return [`$${value.toLocaleString()}`, "Revenue"];
+                const numericValue = Number(value ?? 0);
+
+                if (name === "revenue_contribution" || name === "total_revenue") {
+                  return [`$${numericValue.toLocaleString()}`, "Revenue"];
                 }
                 if (name === "conversion_rate") {
-                  return [`${value.toFixed(1)}%`, "Conversion"];
+                  return [`${numericValue.toFixed(1)}%`, "Conversion"];
                 }
-                return [value, name];
+                return [numericValue.toLocaleString(), "Members"];
               }}
             />
             <Legend verticalAlign="top" height={36} />
             <Bar
               yAxisId="left"
-              dataKey="user_count"
+              dataKey="member_count"
               fill="#10B981"
               name="Users"
               radius={[4, 4, 0, 0]}
@@ -2298,14 +2944,102 @@ const SegmentPerformanceChart = ({ segmentPerformance }) => {
 };
 
 // Segment Details Table
+// ---- SegmentDetailsTable (clean adjusted) ----
 const SegmentDetailsTable = ({ segments = [] }: { segments?: any[] }) => {
   const [showAllSegments, setShowAllSegments] = useState(false);
-  const getMemberCount = (segment: any) =>
-    segment?.member_count ?? segment?.user_count ?? 0;
-  const activeSegments =
-    segments?.filter((seg) => getMemberCount(seg) > 0) || [];
-  const inactiveSegments =
-    segments?.filter((seg) => getMemberCount(seg) === 0) || [];
+
+  const getMemberCount = (s: any) =>
+    normalizeNumericValue(s?.member_count ?? s?.user_count ?? 0);
+
+  const activeSegments = segments.filter(s => getMemberCount(s) > 0);
+  const inactiveSegments = segments.filter(s => getMemberCount(s) === 0);
+
+  // shared row renderer
+  const renderRow = (segment: any, inactive = false) => {
+    const memberCount = getMemberCount(segment);
+    const avgOrderValue = normalizeNumericValue(segment?.avg_order_value ?? 0);
+    const totalRevenue = normalizeNumericValue(
+      segment?.total_revenue ?? segment?.revenue_contribution ?? 0
+    );
+    const conversionRate = normalizePercentageValue(segment?.conversion_rate) ?? 0;
+    const name = segment.segment_name ?? segment.name ?? "Unnamed Segment";
+
+    return (
+      <motion.tr
+        key={segment.segment_id ?? segment.id ?? name}
+        layout
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: "auto" }}
+        exit={{ opacity: 0, height: 0 }}
+        transition={{ duration: 0.25 }}
+        className={`${inactive ? "text-base-content/60" : ""}`}
+      >
+        {/* SEGMENT NAME */}
+        <td>
+          <div className="flex items-center gap-3">
+            <div className="avatar placeholder">
+              <div
+                className={`rounded-full w-8 ${inactive
+                    ? "bg-neutral text-neutral-content"
+                    : "bg-primary text-primary-content"
+                  }`}
+              >
+                <span className="text-xs flex justify-center items-center h-full">
+                  {name?.charAt(0)?.toUpperCase() ?? "?"}
+                </span>
+              </div>
+            </div>
+            <div className="font-semibold">{name}</div>
+          </div>
+        </td>
+
+        {/* USERS */}
+        <td>
+          <div
+            className={`badge badge-lg text-xs  ${inactive ? "badge-neutral" : "badge-primary"
+              }`}
+          >
+            {memberCount.toLocaleString()}
+          </div>
+        </td>
+
+        {/* AVG ORDER VALUE */}
+        <td>${avgOrderValue.toFixed(2)}</td>
+
+        {/* CONVERSION RATE */}
+        <td>
+          <div className="flex items-center gap-2">
+            <div
+              className={`progress w-16 ${inactive ? "progress-neutral" : "progress-primary"
+                }`}
+              style={{ "--value": conversionRate } as any}
+            />
+            <span className="text-sm">{conversionRate.toFixed(1)}%</span>
+          </div>
+        </td>
+
+        {/* REVENUE */}
+        <td className="font-semibold text-success">
+          ${totalRevenue.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </td>
+
+        {/* ACTIONS */}
+        <td>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-ghost btn-sm text-primary">
+              <Edit className="w-4 h-4" />
+            </button>
+            <button className="btn btn-ghost btn-sm text-error">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </td>
+      </motion.tr>
+    );
+  };
 
   return (
     <div className="card bg-base-100 border border-base-300 shadow-lg rounded-xl">
@@ -2313,6 +3047,7 @@ const SegmentDetailsTable = ({ segments = [] }: { segments?: any[] }) => {
         <h3 className="text-xl font-semibold mb-4 text-base-content">
           Detailed Performance Metrics
         </h3>
+
         <div className="overflow-x-auto">
           <table className="table table-zebra">
             <thead>
@@ -2326,172 +3061,15 @@ const SegmentDetailsTable = ({ segments = [] }: { segments?: any[] }) => {
               </tr>
             </thead>
             <tbody>
-              {activeSegments.map(
-                (segment: any, index: React.Key | null | undefined) => (
-                  <tr key={index} className="hover:bg-base-200/50">
-                    {(() => {
-                      const memberCount = getMemberCount(segment);
-                      const ordersCount = segment?.orders_count ?? 0;
-                      const avgOrderValue = Number(
-                        segment?.avg_order_value ?? 0
-                      );
-                      const revenuePerMember =
-                        segment?.revenue_per_member ??
-                        (memberCount
-                          ? (segment?.total_revenue ?? 0) / memberCount
-                          : 0);
-                      const totalRevenue =
-                        segment?.total_revenue ??
-                        segment?.revenue_contribution ??
-                        0;
-                      const conversionRate =
-                        segment?.conversion_rate ?? 0;
-                      return (
-                        <>
-                          <td>
-                            <div className="flex items-center gap-3">
-                              <div className="avatar placeholder">
-                                <div className="bg-primary text-primary-content rounded-full w-8">
-                                  <span className="text-xs">
-                                    {segment.segment_name?.charAt(0) ?? "?"}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="font-semibold">
-                                {segment.segment_name}
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <div className="badge badge-primary badge-lg">
-                              {memberCount.toLocaleString()}
-                            </div>
-                          </td>
-                          <td>${avgOrderValue}</td>
-                          
-                          <td>
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="progress progress-primary w-16"
-                                style={{ "--value": conversionRate } as any}
-                              ></div>
-                              <span className="text-sm">
-                                {conversionRate.toFixed(1)}%
-                              </span>
-                            </div>
-                          </td>
-                          <td className="font-semibold text-success">
-                            ${totalRevenue.toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </td>
-                          <td>
-                            <div className="flex items-center gap-2">
-                              <button className="btn btn-ghost btn-sm text-primary">
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button className="btn btn-ghost btn-sm text-error">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </>
-                      );
-                    })()}
-                  </tr>
-                )
-              )}
+              {activeSegments.map(seg => renderRow(seg, false))}
               <AnimatePresence>
                 {showAllSegments &&
-                  inactiveSegments.map(
-                    (segment: any, index: React.Key | null | undefined) => (
-                      <motion.tr
-                        key={index}
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.3 }}
-                        className="text-base-content/60"
-                      >
-                        {(() => {
-                          const memberCount = getMemberCount(segment);
-                          const ordersCount = segment?.orders_count ?? 0;
-                          const avgOrderValue = Number(
-                            segment?.avg_order_value ?? 0
-                          );
-                          const revenuePerMember =
-                            segment?.revenue_per_member ??
-                            (memberCount
-                              ? (segment?.total_revenue ?? 0) / memberCount
-                              : 0);
-                          const totalRevenue =
-                            segment?.total_revenue ??
-                            segment?.revenue_contribution ??
-                            0;
-                          const conversionRate =
-                            segment?.conversion_rate ?? 0;
-                          return (
-                            <>
-                              <td>
-                                <div className="flex items-center gap-3">
-                                  <div className="avatar placeholder">
-                                    <div className="bg-neutral text-neutral-content rounded-full w-8">
-                                      <span className="text-xs">
-                                        {segment.segment_name?.charAt(0) ?? "?"}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="font-semibold">
-                                    {segment.segment_name}
-                                  </div>
-                                </div>
-                              </td>
-                              <td>
-                                <div className="badge badge-neutral badge-lg">
-                                  {memberCount.toLocaleString()}
-                                </div>
-                              </td>
-                              <td>{ordersCount.toLocaleString()}</td>
-                              <td>${avgOrderValue.toFixed(2)}</td>
-                              <td>${revenuePerMember.toFixed(2)}</td>
-                              <td className="font-semibold">
-                                ${totalRevenue.toLocaleString(undefined, {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}
-                              </td>
-                              <td>
-                                <div className="flex items-center gap-2">
-                                  <div
-                                    className="progress progress-neutral w-16"
-                                    style={{ "--value": conversionRate } as any}
-                                  ></div>
-                                  <span className="text-sm">
-                                    {conversionRate.toFixed(1)}%
-                                  </span>
-                                </div>
-                              </td>
-                              <td>
-                                <div className="flex items-center gap-2">
-                                  <button className="btn btn-ghost btn-sm text-primary">
-                                    <Edit className="w-4 h-4" />
-                                  </button>
-                                  <button className="btn btn-ghost btn-sm text-error">
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </td>
-                            </>
-                          );
-                        })()}
-                      </motion.tr>
-                    )
-                  )}
+                  inactiveSegments.map(seg => renderRow(seg, true))}
               </AnimatePresence>
             </tbody>
           </table>
         </div>
+
         {inactiveSegments.length > 0 && (
           <div className="mt-4 flex justify-center">
             <button
@@ -2500,13 +3078,12 @@ const SegmentDetailsTable = ({ segments = [] }: { segments?: any[] }) => {
             >
               {showAllSegments ? (
                 <>
-                  <ChevronUp className="w-4 h-4 mr-2" />
-                  Hide Inactive Segments
+                  <ChevronUp className="w-4 h-4 mr-2" /> Hide Inactive Segments
                 </>
               ) : (
                 <>
-                  <ChevronDown className="w-4 h-4 mr-2" />
-                  Show {inactiveSegments.length} Inactive Segments
+                  <ChevronDown className="w-4 h-4 mr-2" /> Show{" "}
+                  {inactiveSegments.length} Inactive Segments
                 </>
               )}
             </button>
@@ -2518,7 +3095,22 @@ const SegmentDetailsTable = ({ segments = [] }: { segments?: any[] }) => {
 };
 
 // Create Segment Modal
-const CreateSegmentModal = ({ newSegment, setNewSegment, onClose, onSave }) => {
+const CreateSegmentModal = ({
+  newSegment,
+  setNewSegment,
+  onClose,
+  onSave,
+  isSaving = false,
+  error,
+}: {
+  newSegment: any;
+  setNewSegment: React.Dispatch<any>;
+  onClose: () => void;
+  onSave: () => Promise<void> | void;
+  isSaving?: boolean;
+  error?: string | null;
+}) => {
+
   const segmentTypes = [
     {
       id: "rfm",
@@ -2538,20 +3130,194 @@ const CreateSegmentModal = ({ newSegment, setNewSegment, onClose, onSave }) => {
     { id: "custom", name: "Custom", description: "Define your own criteria" },
   ];
 
-  const criteriaFields = [
-    "Purchase Amount",
-    "Order Frequency",
-    "Last Purchase Date",
-    "Product Category",
-  ];
-  const operators = ["Greater than", "Less than", "Equal to", "Between"];
+  const segmentType = normalizeSegmentType(newSegment?.type);
+  const availableFields = getFieldsForSegmentType(segmentType);
+  const fallbackField = availableFields[0] ?? SEGMENT_FIELD_DEFINITIONS[0];
+  const selectedSegmentMeta = segmentTypes.find((type) => type.id === segmentType);
 
-  const handleCriteriaChange = (key: string, value: string) => {
+  const criteriaLogic =
+    typeof newSegment?.criteria?.logic === "string" &&
+    ["and", "or"].includes(newSegment.criteria.logic.toLowerCase())
+      ? newSegment.criteria.logic.toLowerCase()
+      : "and";
+
+  const criteriaConditions = normalizeConditionsForType(
+    Array.isArray(newSegment?.criteria?.conditions)
+      ? newSegment.criteria.conditions
+      : undefined,
+    segmentType
+  );
+
+  const ensureFieldDefinition = (fieldKey?: string) =>
+    FIELD_DEFINITION_BY_FIELD[fieldKey ?? ""] ?? fallbackField;
+
+  const handleSegmentTypeChange = (nextType: string) => {
+    const normalizedType = normalizeSegmentType(nextType);
     setNewSegment((prev: any) => ({
       ...prev,
-      criteria: { ...prev.criteria, [key]: value },
+      type: normalizedType,
+      criteria: {
+        logic: "and",
+        conditions: [createDefaultConditionForType(normalizedType)],
+      },
     }));
   };
+
+  const handleCriteriaChange = (index: number, key: "field" | "operator" | "value", value: string) => {
+    setNewSegment((prev: any) => {
+      const currentType = normalizeSegmentType(prev?.type);
+      const baseConditions = normalizeConditionsForType(
+        Array.isArray(prev?.criteria?.conditions)
+          ? prev.criteria.conditions
+          : undefined,
+        currentType
+      );
+
+      const existingCondition = baseConditions[index] ?? createDefaultConditionForType(currentType);
+      const updatedCondition = { ...existingCondition };
+
+      if (key === "field") {
+        const fieldDef = ensureFieldDefinition(value);
+        const operators = getOperatorsForFieldDefinition(fieldDef);
+        updatedCondition.field = fieldDef.field;
+        if (!operators.includes(updatedCondition.operator)) {
+          updatedCondition.operator = fieldDef.defaultOperator ?? operators[0] ?? "equals";
+        }
+        updatedCondition.value = "";
+      } else if (key === "operator") {
+        const fieldDef = ensureFieldDefinition(updatedCondition.field);
+        const operators = getOperatorsForFieldDefinition(fieldDef);
+        updatedCondition.operator = operators.includes(value as OperatorKey)
+          ? (value as OperatorKey)
+          : fieldDef.defaultOperator ?? operators[0] ?? "equals";
+      } else if (key === "value") {
+        updatedCondition.value = value;
+      }
+
+      const nextConditions = [...baseConditions];
+      nextConditions[index] = updatedCondition;
+
+      const normalizedLogic =
+        typeof prev?.criteria?.logic === "string" && prev.criteria.logic.toLowerCase() === "or"
+          ? "or"
+          : "and";
+
+      return {
+        ...prev,
+        criteria: {
+          logic: normalizedLogic,
+          conditions: nextConditions,
+        },
+      };
+    });
+  };
+
+  const handleLogicChange = (value: string) => {
+    const normalized = value === "or" ? "or" : "and";
+    setNewSegment((prev: any) => {
+      const currentType = normalizeSegmentType(prev?.type);
+      const baseConditions = normalizeConditionsForType(
+        Array.isArray(prev?.criteria?.conditions)
+          ? prev.criteria.conditions
+          : undefined,
+        currentType
+      );
+
+      return {
+        ...prev,
+        criteria: {
+          logic: normalized,
+          conditions: baseConditions,
+        },
+      };
+    });
+  };
+
+  const handleAddCondition = () => {
+    setNewSegment((prev: any) => {
+      const currentType = normalizeSegmentType(prev?.type);
+      const baseConditions = normalizeConditionsForType(
+        Array.isArray(prev?.criteria?.conditions)
+          ? prev.criteria.conditions
+          : undefined,
+        currentType
+      );
+
+      const normalizedLogic =
+        typeof prev?.criteria?.logic === "string" && prev.criteria.logic.toLowerCase() === "or"
+          ? "or"
+          : "and";
+
+      return {
+        ...prev,
+        criteria: {
+          logic: normalizedLogic,
+          conditions: [...baseConditions, createDefaultConditionForType(currentType)],
+        },
+      };
+    });
+  };
+
+  const handleRemoveCondition = (index: number) => {
+    setNewSegment((prev: any) => {
+      const currentType = normalizeSegmentType(prev?.type);
+      const baseConditions = normalizeConditionsForType(
+        Array.isArray(prev?.criteria?.conditions)
+          ? prev.criteria.conditions
+          : undefined,
+        currentType
+      );
+
+      if (baseConditions.length <= 1) {
+        return prev;
+      }
+
+      const nextConditions = baseConditions.filter((_, idx) => idx !== index);
+
+      const normalizedLogic =
+        typeof prev?.criteria?.logic === "string" && prev.criteria.logic.toLowerCase() === "or"
+          ? "or"
+          : "and";
+
+      return {
+        ...prev,
+        criteria: {
+          logic: normalizedLogic,
+          conditions: nextConditions,
+        },
+      };
+    });
+  };
+
+  const handleResetCriteria = () => {
+    setNewSegment((prev: any) => {
+      const currentType = normalizeSegmentType(prev?.type);
+      return {
+        ...prev,
+        criteria: {
+          logic: "and",
+          conditions: [createDefaultConditionForType(currentType)],
+        },
+      };
+    });
+  };
+
+  const isAndLogic = criteriaLogic === "and";
+  const logicLabel = criteriaLogic === "or" ? "OR" : "AND";
+
+  const previewConditionStrings = criteriaConditions.map((condition) => {
+    const fieldDef = ensureFieldDefinition(condition.field);
+    const operatorLabel = getOperatorLabel(condition.operator, fieldDef.valueType);
+    const rawValue = typeof condition.value === "string" ? condition.value : String(condition.value ?? "");
+
+    const normalizedValue = rawValue.trim() ? rawValue.trim() : "(value)";
+
+    return `${fieldDef.label} ${operatorLabel} ${normalizedValue}`;
+  });
+
+  const previewCriteriaText = previewConditionStrings.length
+    ? previewConditionStrings.join(` ${logicLabel} `)
+    : "—";
 
   return (
     <motion.div
@@ -2565,88 +3331,93 @@ const CreateSegmentModal = ({ newSegment, setNewSegment, onClose, onSave }) => {
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.95, opacity: 0, y: 20 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
-        className="bg-base-100 w-full max-w-lg rounded-2xl shadow-2xl border border-base-200"
+        className="bg-base-100 w-full max-w-3xl rounded-2xl shadow-2xl border border-base-200 max-h-[90vh] flex flex-col overflow-hidden"
       >
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-2xl font-bold text-base-content">
-              Create Segment
-            </h3>
-            <button
-              onClick={onClose}
-              className="btn btn-ghost btn-sm btn-circle hover:bg-base-200"
-            >
-              <X className="w-5 h-5 text-base-content/70" />
-            </button>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-base-200 sticky top-0 bg-base-100 z-10">
+          <h3 className="text-2xl font-bold text-base-content">Create Segment</h3>
+          <button
+            onClick={onClose}
+            className="btn btn-ghost btn-sm btn-circle hover:bg-base-200"
+          >
+            <X className="w-5 h-5 text-base-content/70" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-6 overflow-y-auto flex-1">
+          {error && (
+            <div className="alert alert-error shadow-sm">
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Segment Name */}
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-semibold text-base-content/80 mr-2">
+                Segment Name
+              </span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered rounded-lg bg-base-100 border-base-300 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+              placeholder="e.g., High Value Customers"
+              value={newSegment.name}
+              onChange={(e) =>
+                setNewSegment((prev: any) => ({
+                  ...prev,
+                  name: e.target.value,
+                }))
+              }
+            />
           </div>
 
-          <div className="space-y-6">
-            {/* Segment Name */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold text-base-content/80">
-                  Segment Name
-                </span>
-              </label>
-              <input
-                type="text"
-                className="input input-bordered rounded-lg bg-base-100 border-base-300 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-                placeholder="e.g., High Value Customers"
-                value={newSegment.name}
-                onChange={(e) =>
-                  setNewSegment((prev: any) => ({
-                    ...prev,
-                    name: e.target.value,
-                  }))
-                }
-              />
-            </div>
+          {/* Description */}
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-semibold text-base-content/80 mr-2">
+                Description
+              </span>
+            </label>
+            <textarea
+              className="textarea textarea-bordered rounded-lg bg-base-100 border-base-300 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none"
+              placeholder="Describe this segment..."
+              rows={4}
+              value={newSegment.description}
+              onChange={(e) =>
+                setNewSegment((prev: any) => ({
+                  ...prev,
+                  description: e.target.value,
+                }))
+              }
+            />
+          </div>
 
-            {/* Description */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold text-base-content/80">
-                  Description
-                </span>
-              </label>
-              <textarea
-                className="textarea textarea-bordered rounded-lg bg-base-100 border-base-300 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none"
-                placeholder="Describe this segment..."
-                rows={4}
-                value={newSegment.description}
-                onChange={(e) =>
-                  setNewSegment((prev: any) => ({
-                    ...prev,
-                    description: e.target.value,
-                  }))
-                }
-              />
-            </div>
+          {/* Segment Type */}
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-semibold text-base-content/80">
+                Segmentation Type
+              </span>
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {segmentTypes.map((type) => {
+                const isSelected = segmentType === type.id;
 
-            {/* Segment Type */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold text-base-content/80">
-                  Segmentation Type
-                </span>
-              </label>
-              <div className="grid grid-cols-1 gap-3">
-                {segmentTypes.map((type) => (
+                return (
                   <label
                     key={type.id}
-                    className="flex items-center gap-3 p-3 rounded-lg border border-base-200 hover:bg-primary/5 cursor-pointer transition-all"
+                    className={`flex items-center gap-3 p-4 rounded-xl border transition-all cursor-pointer ${isSelected
+                        ? "border-primary bg-primary/10 shadow-sm"
+                        : "border-base-200 hover:border-primary/50 hover:bg-primary/5"
+                      }`}
                   >
                     <input
                       type="radio"
                       name="segmentType"
                       className="radio radio-primary radio-sm"
                       value={type.id}
-                      onChange={(e) =>
-                        setNewSegment((prev: any) => ({
-                          ...prev,
-                          type: e.target.value,
-                        }))
-                      }
+                      checked={isSelected}
+                      onChange={(e) => handleSegmentTypeChange(e.target.value)}
                     />
                     <div>
                       <div className="font-semibold text-base-content">
@@ -2657,90 +3428,206 @@ const CreateSegmentModal = ({ newSegment, setNewSegment, onClose, onSave }) => {
                       </div>
                     </div>
                   </label>
-                ))}
-              </div>
+                );
+              })}
             </div>
+          </div>
 
-            {/* Criteria Builder */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold text-base-content/80">
-                  Criteria
-                </span>
-              </label>
-              <div className="flex flex-col gap-3 bg-base-200/30 p-4 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <select
-                    className="select select-bordered rounded-lg bg-base-100 border-base-300 flex-1"
-                    value={newSegment.criteria.field}
-                    onChange={(e) =>
-                      handleCriteriaChange("field", e.target.value)
-                    }
+          {/* Criteria Builder */}
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-semibold text-base-content/80">
+                Criteria
+              </span>
+            </label>
+            <div className="flex flex-col gap-4 bg-base-200/30 p-4 rounded-xl border border-base-200">
+              <div className="flex items-center justify-between text-xs uppercase tracking-wide text-base-content/60">
+                <span>Combine conditions with</span>
+                <div className="join join-horizontal">
+                  <button
+                    type="button"
+                    className={`btn btn-xs join-item rounded-full ${isAndLogic ? "btn-primary" : "btn-ghost text-base-content/70"}`}
+                    onClick={() => handleLogicChange("and")}
                   >
-                    {criteriaFields.map((field) => (
-                      <option key={field} value={field}>
-                        {field}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="select select-bordered rounded-lg bg-base-100 border-base-300 w-40"
-                    value={newSegment.criteria.operator}
-                    onChange={(e) =>
-                      handleCriteriaChange("operator", e.target.value)
-                    }
+                    AND
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-xs join-item rounded-full ${!isAndLogic ? "btn-primary" : "btn-ghost text-base-content/70"}`}
+                    onClick={() => handleLogicChange("or")}
                   >
-                    {operators.map((op) => (
-                      <option key={op} value={op}>
-                        {op}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    className="input input-bordered rounded-lg bg-base-100 border-base-300 w-32 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-                    placeholder="Value"
-                    value={newSegment.criteria.value}
-                    onChange={(e) =>
-                      handleCriteriaChange("value", e.target.value)
-                    }
-                  />
+                    OR
+                  </button>
                 </div>
-                <button
-                  className="btn btn-ghost btn-sm text-primary self-end"
-                  onClick={() =>
-                    setNewSegment((prev: any) => ({
-                      ...prev,
-                      criteria: {
-                        field: "Purchase Amount",
-                        operator: "Greater than",
-                        value: "",
-                      },
-                    }))
+              </div>
+
+              <div className="space-y-3">
+                {criteriaConditions.map((condition, index) => {
+                  const fieldDef = ensureFieldDefinition(condition.field);
+                  const operatorOptions = getOperatorsForFieldDefinition(fieldDef);
+                  const operatorValue = operatorOptions.includes(condition.operator)
+                    ? condition.operator
+                    : fieldDef.defaultOperator ?? operatorOptions[0] ?? "equals";
+
+                  const inputType =
+                    fieldDef.valueType === "date"
+                      ? "date"
+                      : fieldDef.valueType === "number" || fieldDef.valueType === "integer"
+                        ? "number"
+                        : "text";
+
+                  const inputValue =
+                    fieldDef.valueType === "date" && typeof condition.value === "string"
+                      ? condition.value.split("T")[0]
+                      : condition.value ?? "";
+
+                  const placeholder =
+                    operatorValue === "in" || operatorValue === "not_in"
+                      ? fieldDef.placeholder ?? "Comma separated values"
+                      : fieldDef.placeholder ?? "Value";
+
+                  const inputProps: Record<string, string> = {};
+                  if (fieldDef.step) {
+                    inputProps.step = fieldDef.step;
                   }
+                  if (fieldDef.min) {
+                    inputProps.min = fieldDef.min;
+                  }
+
+                  return (
+                    <div
+                      key={`criteria-${index}`}
+                      className="flex flex-col md:flex-row md:items-center gap-3"
+                    >
+                      <select
+                        className="select select-bordered rounded-lg bg-base-100 border-base-300 flex-1"
+                        value={fieldDef.field}
+                        onChange={(e) =>
+                          handleCriteriaChange(index, "field", e.target.value)
+                        }
+                      >
+                        {availableFields.length > 0
+                          ? availableFields.map((fieldOption) => (
+                              <option key={fieldOption.field} value={fieldOption.field}>
+                                {fieldOption.label}
+                              </option>
+                            ))
+                          : SEGMENT_FIELD_DEFINITIONS.map((fieldOption) => (
+                              <option key={fieldOption.field} value={fieldOption.field}>
+                                {fieldOption.label}
+                              </option>
+                            ))}
+                      </select>
+                      <select
+                        className="select select-bordered rounded-lg bg-base-100 border-base-300 md:w-52"
+                        value={operatorValue}
+                        onChange={(e) =>
+                          handleCriteriaChange(index, "operator", e.target.value)
+                        }
+                      >
+                        {operatorOptions.map((operatorKey) => (
+                          <option key={operatorKey} value={operatorKey}>
+                            {getOperatorLabel(operatorKey, fieldDef.valueType)}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex items-center gap-2 md:w-60">
+                        <input
+                          type={inputType}
+                          className="input input-bordered rounded-lg bg-base-100 border-base-300 w-full focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+                          placeholder={placeholder}
+                          value={inputValue}
+                          onChange={(e) =>
+                            handleCriteriaChange(index, "value", e.target.value)
+                          }
+                          {...inputProps}
+                        />
+                        {criteriaConditions.length > 1 && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-square btn-sm text-error"
+                            onClick={() => handleRemoveCondition(index)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-base-content/60">
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm rounded-full text-primary"
+                  onClick={handleAddCondition}
                 >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add Another
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Condition
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm text-primary"
+                  onClick={handleResetCriteria}
+                  disabled={criteriaConditions.length === 1 && criteriaLogic === "and"}
+                >
+                  Reset Criteria
                 </button>
               </div>
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 mt-8">
-            <button
-              onClick={onClose}
-              className="btn btn-ghost rounded-full px-6 hover:bg-base-200"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={onSave}
-              className="btn btn-primary rounded-full px-6"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              Create Segment
-            </button>
+          {/* Preview */}
+          <div className="rounded-xl border border-base-200 bg-base-200/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-base-content/80">Segment preview</h4>
+              <span className="badge badge-outline badge-sm">
+                {selectedSegmentMeta?.name ?? "Not selected"}
+              </span>
+            </div>
+            <div className="text-sm text-base-content/70 space-y-1">
+              <div>
+                <span className="font-medium text-base-content">Name:</span>{" "}
+                {newSegment.name?.trim() || "—"}
+              </div>
+              <div>
+                <span className="font-medium text-base-content">Description:</span>{" "}
+                {newSegment.description?.trim() || "—"}
+              </div>
+              <div>
+                <span className="font-medium text-base-content">Criteria:</span>{" "}
+                {previewCriteriaText}
+              </div>
+            </div>
           </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-base-200 bg-base-100 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="btn btn-ghost rounded-full px-6 hover:bg-base-200"
+            disabled={isSaving}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => void onSave()}
+            className="btn btn-primary rounded-full px-6"
+            disabled={isSaving}
+          >
+            {isSaving ? (
+              <>
+                <span className="loading loading-spinner loading-sm mr-2"></span>
+                Creating...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Create Segment
+              </>
+            )}
+          </button>
         </div>
       </motion.div>
     </motion.div>
@@ -2769,10 +3656,10 @@ const MLManagementDashboard = () => {
           ML Management Center
         </h1>
         <p className="text-base-content/70 text-lg">
-          Manage your machine learning models 
+          Manage your machine learning models
         </p>
         <div className="flex items-center gap-4 mt-4">
-          
+
           <div className="badge badge-success badge-lg">
             <Activity className="w-4 h-4 mr-2" />
             Real-time Monitoring
@@ -2784,7 +3671,7 @@ const MLManagementDashboard = () => {
         </div>
       </motion.div>
 
-     
+
 
       {/* Tab Content */}
       <AnimatePresence mode="wait">

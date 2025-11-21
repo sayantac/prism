@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
 )
 from app.api.v1.endpoints.admin import (
     analytics as admin_analytics,
+    banners as admin_banners,
     dashboard as admin_dashboard,
     ml_models as admin_ml_models,
     orders as admin_orders,
@@ -44,6 +45,9 @@ api_router.include_router(
 )
 
 # Admin endpoints
+api_router.include_router(
+    admin_banners.router, prefix="/admin/banners", tags=["admin-banners"]
+)
 api_router.include_router(
     admin_dashboard.router, prefix="/admin/dashboard", tags=["admin-dashboard"]
 )

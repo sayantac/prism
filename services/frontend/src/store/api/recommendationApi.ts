@@ -29,6 +29,13 @@ export const recommendationApi = apiSlice.injectEndpoints({
       query: (userId: string) => `/recommendations/user-banners/${userId}`,
       providesTags: ["Banner"],
     }),
+    getPublishedBanners: builder.query({
+      query: (params: { limit?: number } = {}) => ({
+        url: "/recommendations/banners/published",
+        params,
+      }),
+      providesTags: ["Banner"],
+    }),
     // Backend provides a "customers who bought also bought" style endpoint
     // which expects a query param `product_id`. Map the frontend call to that
     // backend route so we don't get 404s.
@@ -81,6 +88,7 @@ export const {
   useGetTrendingProductsQuery,
   useGetNewArrivalsQuery,
   useGetUserBannersQuery,
+  useGetPublishedBannersQuery,
   useGetRelatedProductsQuery,
   useGetFBTProductsQuery,
   useGetSimilarProductsQuery,

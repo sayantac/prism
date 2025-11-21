@@ -33,8 +33,8 @@ export const Tabs: React.FC<TabsProps> = ({
     <div className={twMerge(baseClasses, variantClasses[variant], className)}>
       {tabs.map((tab) => (
         <button
+          type="button"
           key={tab.id}
-          type={"button"}
           className={`tab tab-lg ${activeTab === tab.id ? "tab-active" : ""}`}
           onClick={() => onTabChange(tab.id)}
         >

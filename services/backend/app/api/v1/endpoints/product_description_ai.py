@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, UploadFile, File, Form, status, Body
-from app.services.product_description.caption_utils import generate_caption
+from app.services.product_description.caption_utils import generate_caption, generate_caption_gemini
 from app.services.product_description.model_loader import load_blip_model
 from app.services.product_description.google_utils import generate_google_answer
 
@@ -51,38 +51,172 @@ def _collect_product_context(
 
 
 def _build_prompt(mode: str, context_block: str) -> str:
+    """
+    Build optimized prompts for each mode with better instructions for utilizing image captions.
+    """
+    base_instruction = (
+        "You are an expert ecommerce copywriter with deep knowledge of SEO and conversion optimization. "
+        "Carefully analyze the provided product information and visual insights from images to create "
+        "compelling, accurate, and search-optimized content.\n\n"
+    )
+    
     if mode == "description":
         instructions = (
-            "Generate an ecommerce product description and three feature bullets. "
-            "Return a JSON object with keys 'description' (string, 120-180 words) "
-            "and 'bullets' (array of exactly three short bullet strings). "
-            "The tone should be persuasive but factual."
+            f"{base_instruction}"
+            "**Task:** Generate a comprehensive product description and feature bullets.\n\n"
+            "**Requirements:**\n"
+            "- Use visual insights from images to describe appearance, design, features, and quality\n"
+            "- Description: 120-180 words, persuasive yet factual tone\n"
+            "- Highlight key benefits and use cases\n"
+            "- Include relevant details from brand, category, and SKU information\n"
+            "- Bullets: Exactly 3 concise feature points (each 8-12 words)\n"
+            "- Focus on what makes this product unique and valuable\n\n"
+            "**Output Format (JSON only):**\n"
+            "{\n"
+            '  "description": "detailed product description here",\n'
+            '  "bullets": [\n'
+            '    "First key feature or benefit",\n'
+            '    "Second key feature or benefit",\n'
+            '    "Third key feature or benefit"\n'
+            "  ]\n"
+            "}"
         )
+    
     elif mode == "title":
         instructions = (
-            "Generate a concise ecommerce product title (max 12 words). "
-            "Return a JSON object with key 'title'."
+            f"{base_instruction}"
+            "**Task:** Generate an optimized product title.\n\n"
+            "**Requirements:**\n"
+            "- Maximum 12 words (preferably 8-10)\n"
+            "- Include brand name if provided\n"
+            "- Incorporate key visual attributes from image captions (color, style, material)\n"
+            "- Use power words that drive clicks\n"
+            "- Format: [Brand] + [Product Type] + [Key Feature(s)] + [Variant/Size if applicable]\n"
+            "- Make it scannable and compelling\n\n"
+            "**Output Format (JSON only):**\n"
+            "{\n"
+            '  "title": "Concise product title here"\n'
+            "}"
         )
+    
     elif mode == "seo":
         instructions = (
-            "Generate SEO metadata. Return a JSON object with keys "
-            "'seoTitle' (60 characters max), 'seoMeta' (150-160 characters), "
-            "and 'seoKeywords' (array of 5 keyword phrases)."
+            f"{base_instruction}"
+            "**Task:** Generate complete SEO metadata.\n\n"
+            "**Requirements:**\n"
+            "- SEO Title: Maximum 60 characters, include primary keyword\n"
+            "- Meta Description: 150-160 characters, compelling with call-to-action\n"
+            "- Keywords: Exactly 5 relevant keyword phrases\n"
+            "  * Mix of short-tail (1-2 words) and long-tail (3-4 words) keywords\n"
+            "  * Include visual attributes from image captions\n"
+            "  * Consider search intent and commercial value\n"
+            "- Use image insights to identify searchable attributes (colors, styles, materials)\n\n"
+            "**Output Format (JSON only):**\n"
+            "{\n"
+            '  "seoTitle": "SEO optimized title under 60 chars",\n'
+            '  "seoMeta": "Compelling meta description 150-160 chars with CTA",\n'
+            '  "seoKeywords": [\n'
+            '    "keyword phrase one",\n'
+            '    "keyword phrase two",\n'
+            '    "keyword phrase three",\n'
+            '    "keyword phrase four",\n'
+            '    "keyword phrase five"\n'
+            "  ]\n"
+            "}"
         )
+    
     else:  # all
         instructions = (
-            "Generate a complete ecommerce copy package. Return a JSON object with keys "
-            "'description' (string, 120-180 words), 'bullets' (array of exactly three short bullet strings), "
-            "'title' (string, max 12 words), 'seoTitle' (<=60 characters), 'seoMeta' (150-160 characters), "
-            "and 'seoKeywords' (array of 5 keyword phrases)."
+            f"{base_instruction}"
+            "**Task:** Generate a complete ecommerce content package.\n\n"
+            "**Requirements:**\n\n"
+            "**1. Product Title:**\n"
+            "- Maximum 12 words, include brand and key features\n"
+            "- Incorporate visual attributes from image captions\n\n"
+            "**2. Product Description:**\n"
+            "- 120-180 words, persuasive and informative\n"
+            "- Use image insights to describe appearance and quality\n"
+            "- Highlight benefits and use cases\n\n"
+            "**3. Feature Bullets:**\n"
+            "- Exactly 3 bullet points (8-12 words each)\n"
+            "- Focus on unique selling points\n\n"
+            "**4. SEO Metadata:**\n"
+            "- SEO Title: ≤60 characters with primary keyword\n"
+            "- Meta Description: 150-160 characters with CTA\n"
+            "- Keywords: 5 relevant phrases (mix of short and long-tail)\n\n"
+            "**Important:** Ensure consistency across all elements. Use image captions to enrich "
+            "descriptions with visual details (colors, materials, design features).\n\n"
+            "**Output Format (JSON only):**\n"
+            "{\n"
+            '  "title": "Product title max 12 words",\n'
+            '  "description": "Detailed 120-180 word description",\n'
+            '  "bullets": [\n'
+            '    "First key feature",\n'
+            '    "Second key feature",\n'
+            '    "Third key feature"\n'
+            "  ],\n"
+            '  "seoTitle": "SEO title under 60 chars",\n'
+            '  "seoMeta": "Meta description 150-160 chars",\n'
+            '  "seoKeywords": [\n'
+            '    "keyword one",\n'
+            '    "keyword two",\n'
+            '    "keyword three",\n'
+            '    "keyword four",\n'
+            '    "keyword five"\n'
+            "  ]\n"
+            "}"
         )
 
     return (
-        "You are an expert ecommerce copywriter. Use the provided product facts "
-        "and image insights to craft high quality copy. Only respond with JSON.\n"  # noqa: E501
-        f"Context:\n{context_block}\n\n{instructions}\n"
+        f"{instructions}\n\n"
+        f"**Product Information:**\n{context_block}\n\n"
+        "**Important Instructions:**\n"
+        "- Respond ONLY with valid JSON (no markdown, no code blocks, no extra text)\n"
+        "- Use the visual insights from images to enhance accuracy and detail\n"
+        "- Maintain the specified language throughout all content\n"
+        "- Ensure all character/word limits are strictly followed\n"
+        "- Make content compelling, accurate, and conversion-focused\n"
     )
 
+
+def _collect_product_context(
+    name: str,
+    brand: str,
+    category: str,
+    sku: str,
+    context: str,
+    language: str,
+    captions: List[str],
+) -> str:
+    """
+    Enhanced context collection with better formatting for AI consumption.
+    """
+    sections: List[str] = []
+    
+    # Core product information
+    if name:
+        sections.append(f"• Product Name: {name}")
+    if brand:
+        sections.append(f"• Brand: {brand}")
+    if category:
+        sections.append(f"• Category: {category}")
+    if sku:
+        sections.append(f"• SKU/Product Code: {sku}")
+    
+    # Additional context
+    if context:
+        sections.append(f"\n**Additional Context:**\n{context}")
+    
+    # Visual insights from images
+    if captions:
+        sections.append("\n**Visual Insights from Product Images:**")
+        for idx, caption in enumerate(captions, 1):
+            sections.append(f"  {idx}. {caption}")
+    
+    # Language specification
+    sections.append(f"\n**Target Language:** {language}")
+    
+    return "\n".join(sections)
 
 def _coerce_content(mode: str, raw_text: str) -> Dict[str, Any]:
     try:
@@ -260,7 +394,8 @@ async def generate_product_content(
                     image_bytes = await upload.read()
                     if not image_bytes:
                         continue
-                    caption = generate_caption(active_processor, active_model, image_bytes)
+                    # caption = generate_caption(active_processor, active_model, image_bytes)
+                    caption = generate_caption_gemini(image_bytes)
                     caption_payload.append({
                         "filename": upload.filename,
                         "caption": caption,

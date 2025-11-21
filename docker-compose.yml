@@ -14,7 +14,7 @@ services:
       - ./data/init.sql:/docker-entrypoint-initdb.d/init.sql
       # Note: Schema is created by SQLAlchemy on backend startup
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ecommerce_user}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ecommerce_user} -d ${POSTGRES_DB:-ecommerce}"]
       interval: 10s
       timeout: 5s
       retries: 5
